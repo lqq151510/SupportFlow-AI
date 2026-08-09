@@ -1,0 +1,3 @@
+package com.lqq.supportflow.eventing.api;
+import com.lqq.supportflow.eventing.application.DispatchOutboxService; import java.util.Map; import org.springframework.web.bind.annotation.*;
+@RestController @RequestMapping("/api/v1/admin/outbox") public class AdminOutboxController { private final DispatchOutboxService service; public AdminOutboxController(DispatchOutboxService service){this.service=service;} @PostMapping("/dispatch") Map<String,Integer> dispatch(@RequestParam(defaultValue="100") int limit){if(limit<1||limit>1000)throw new IllegalArgumentException("dispatch limit must be between 1 and 1000");return Map.of("published",service.dispatch(limit));}}

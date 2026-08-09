@@ -297,6 +297,41 @@ class SupportFlowApplicationTest {
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("HANDOFF_REQUIRED"));
     }
 
+    @Test
+    void approvedActionIsRecordedOnceAndDispatchedOnceAfterDecisionReplay() throws Exception {
+        registerTenant("approval-shop", "admin@approval.test");
+        String token = loginAccessToken("approval-shop", "admin@approval.test", "safe-password-123");
+
+        MvcResult created = mockMvc.perform(post("/api/v1/admin/approvals")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("{\"actionType\":\"refund.request\",\"actionSummary\":\"Refund eligible order\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn();
+        Number approvalId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        String decisionPath = "/api/v1/admin/approvals/" + approvalId.longValue() + "/decision";
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post(decisionPath)
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", "approve-refund-1")
+                            .contentType("application/json")
+                            .content("{\"decision\":\"APPROVED\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("APPROVED"));
+        }
+
+        mockMvc.perform(post("/api/v1/admin/outbox/dispatch")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.published").value(1));
+        mockMvc.perform(post("/api/v1/admin/outbox/dispatch")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.published").value(0));
+    }
+
     private void registerTenant(String tenantCode, String email) throws Exception {
         String body = "{\"tenantCode\":\"" + tenantCode + "\",\"tenantName\":\"" + tenantCode
                 + "\",\"email\":\"" + email + "\",\"displayName\":\"Admin\",\"password\":\"safe-password-123\"}";

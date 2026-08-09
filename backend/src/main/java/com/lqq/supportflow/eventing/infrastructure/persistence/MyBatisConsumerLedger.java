@@ -1,0 +1,3 @@
+package com.lqq.supportflow.eventing.infrastructure.persistence;
+import com.lqq.supportflow.eventing.domain.ConsumerLedger; import java.time.Instant; import org.springframework.dao.DuplicateKeyException; import org.springframework.stereotype.Component;
+@Component public class MyBatisConsumerLedger implements ConsumerLedger { private final ConsumedEventMapper mapper; public MyBatisConsumerLedger(ConsumedEventMapper mapper){this.mapper=mapper;} public boolean claim(Long tenantId,String consumerName,Long eventId){ConsumedEventEntity entry=new ConsumedEventEntity();entry.tenantId=tenantId;entry.consumerName=consumerName;entry.eventId=eventId;entry.processedAt=Instant.now();try{mapper.insert(entry);return true;}catch(DuplicateKeyException exception){return false;}}}
