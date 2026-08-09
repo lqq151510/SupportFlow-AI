@@ -30,7 +30,7 @@ public class GenerateReplyService {
         TenantContext.set(new AuthenticatedPrincipal(request.customerId(), request.tenantId(), 0L, "CUSTOMER"));
         try {
             if (!lifecycle.start(request)) return;
-            long startedAt = System.nanoTime(); List<RetrievedCitation> citations = knowledge.retrieve(request.tenantId(), request.content()); if (!citations.isEmpty()) events.append(request.tenantId(), request.generationId(), "knowledge.citations", json.writeValueAsString(citations)); StringBuilder response = new StringBuilder(); Map<String, ToolCall> calls = new LinkedHashMap<>(); boolean failed = false; boolean requiresApproval = false; int inputTokens = 0; int outputTokens = 0;
+            long startedAt = System.nanoTime(); List<RetrievedCitation> citations = knowledge.retrieve(request.tenantId(), request.content()); if (citations.isEmpty()) { events.appendIfAbsent(request.tenantId(), request.generationId(), "knowledge.insufficient", "{\"reason\":\"NO_TENANT_EVIDENCE\"}"); lifecycle.handoff(request, "knowledge evidence is insufficient"); return; } events.append(request.tenantId(), request.generationId(), "knowledge.citations", json.writeValueAsString(citations)); StringBuilder response = new StringBuilder(); Map<String, ToolCall> calls = new LinkedHashMap<>(); boolean failed = false; boolean requiresApproval = false; int inputTokens = 0; int outputTokens = 0;
             for (ModelStreamEvent event : models.stream(request.tenantId(), messages(request.content(), citations), supportedTools()).toIterable()) {
                 events.append(request.tenantId(), request.generationId(), event.type(), event.data());
                 if ("text.delta".equals(event.type())) response.append(json.readTree(event.data()).path("text").asText());
