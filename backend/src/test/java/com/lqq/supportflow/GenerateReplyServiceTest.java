@@ -12,6 +12,7 @@ import com.lqq.supportflow.conversation.application.GenerationLifecycleService;
 import com.lqq.supportflow.conversation.domain.GenerationEventStore;
 import com.lqq.supportflow.action.ToolExecutionService;
 import com.lqq.supportflow.action.ToolExecutionResult;
+import com.lqq.supportflow.knowledge.KnowledgeRetrievalService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lqq.supportflow.model.ModelChatService;
 import com.lqq.supportflow.model.ModelStreamEvent;
@@ -32,7 +33,7 @@ class GenerateReplyServiceTest {
                 new ModelStreamEvent("usage.reported", "{\"inputTokens\":11,\"outputTokens\":22}"),
                 new ModelStreamEvent("model.completed", "{}")));
 
-        new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), new ObjectMapper())
+        new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), mock(KnowledgeRetrievalService.class), new ObjectMapper())
                 .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "订单到哪里了"));
 
         verify(events).append(1L, 3L, "text.delta", "{\"text\":\"您好\"}");
@@ -55,7 +56,7 @@ class GenerateReplyServiceTest {
         when(tools.execute(eq(1L), eq(4L), eq("refund.request"), any()))
                 .thenReturn(new ToolExecutionResult("refund.request", "PENDING_APPROVAL", java.util.Map.of("approvalId", 9L)));
 
-        new GenerateReplyService(lifecycle, events, models, tools, new ObjectMapper())
+        new GenerateReplyService(lifecycle, events, models, tools, mock(KnowledgeRetrievalService.class), new ObjectMapper())
                 .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "我要退款"));
 
         verify(tools).execute(eq(1L), eq(4L), eq("refund.request"), eq(java.util.Map.of("orderNo", "DEMO-001")));
