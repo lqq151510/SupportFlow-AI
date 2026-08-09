@@ -1,7 +1,6 @@
 package com.lqq.supportflow.model.infrastructure.persistence;
-import com.lqq.supportflow.model.domain.ModelConfig;
-import com.lqq.supportflow.model.domain.ModelConfigPort;
-import com.lqq.supportflow.model.domain.ModelProtocol;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.lqq.supportflow.model.domain.*;
 import java.time.Instant;
 import org.springframework.stereotype.Component;
 @Component public class MyBatisModelConfigAdapter implements ModelConfigPort {
@@ -11,4 +10,5 @@ import org.springframework.stereotype.Component;
         Instant now=Instant.now(); ModelConfigEntity entity=new ModelConfigEntity(); entity.tenantId=tenantId; entity.name=name; entity.protocol=protocol.name(); entity.baseUrl=baseUrl; entity.modelName=modelName; entity.encryptedApiKey=encryptedApiKey; entity.isDefault=isDefault; entity.createdAt=now; entity.updatedAt=now; mapper.insert(entity);
         return new ModelConfig(entity.id,name,protocol,baseUrl,modelName,isDefault);
     }
+    public java.util.Optional<EmbeddingModelConfig> findDefaultEmbedding(Long tenantId) { return java.util.Optional.ofNullable(mapper.selectOne(new QueryWrapper<ModelConfigEntity>().eq("tenant_id",tenantId).eq("protocol",ModelProtocol.OPENAI_COMPATIBLE.name()).eq("is_default",true))).map(entity->new EmbeddingModelConfig(entity.baseUrl,entity.modelName,entity.encryptedApiKey)); }
 }

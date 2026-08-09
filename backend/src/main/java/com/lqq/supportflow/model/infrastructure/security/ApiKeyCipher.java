@@ -34,6 +34,12 @@ public class ApiKeyCipher implements ModelSecretPort {
         return encrypt(plaintext, masterKey);
     }
 
+    @Override public String decrypt(String ciphertext) {
+        String masterKey = System.getenv("MODEL_SECRET_MASTER_KEY");
+        if (masterKey == null || masterKey.isBlank()) throw new IllegalStateException("MODEL_SECRET_MASTER_KEY is required");
+        return decrypt(ciphertext, masterKey);
+    }
+
     public String decrypt(String ciphertext, String masterKeyBase64) {
         try {
             byte[] payload = Base64.getDecoder().decode(ciphertext);

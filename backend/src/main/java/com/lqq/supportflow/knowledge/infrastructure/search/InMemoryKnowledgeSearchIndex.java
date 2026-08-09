@@ -1,0 +1,3 @@
+package com.lqq.supportflow.knowledge.infrastructure.search;
+import com.lqq.supportflow.knowledge.domain.*; import java.util.*; import java.util.concurrent.*; import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty; import org.springframework.stereotype.Component;
+@Component @ConditionalOnProperty(prefix="supportflow.search.elasticsearch",name="enabled",havingValue="false",matchIfMissing=true) public class InMemoryKnowledgeSearchIndex implements KnowledgeSearchIndex { private final ConcurrentMap<Long,IndexedKnowledgeChunk> chunks=new ConcurrentHashMap<>(); public void index(Long tenantId,Long knowledgeBaseId,Long documentId,List<IndexedKnowledgeChunk> entries){entries.forEach(entry->chunks.put(entry.chunk().id(),entry));}}
