@@ -246,7 +246,7 @@ class SupportFlowApplicationTest {
         String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId.longValue() + "/documents";
         String document = "{\"fileName\":\"policy.txt\",\"content\":\"Refund policy content\"}";
         mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("UPLOADED"));
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING"));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + attackerToken).contentType("application/json")
