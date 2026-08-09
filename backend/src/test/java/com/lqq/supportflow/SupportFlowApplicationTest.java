@@ -43,4 +43,15 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(body))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
     }
+
+    @Test
+    void customerRegistrationRequiresExistingTenantAndCreatesCustomerMembership() throws Exception {
+        String tenant = "{\"tenantCode\":\"buyer-shop\",\"tenantName\":\"Buyer Shop\",\"email\":\"owner@buyer.test\",\"displayName\":\"Owner\",\"password\":\"safe-password-123\"}";
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(tenant)).andExpect(status().isCreated());
+        String customer = "{\"tenantCode\":\"buyer-shop\",\"email\":\"buyer@buyer.test\",\"displayName\":\"Buyer\",\"password\":\"safe-password-123\"}";
+        mockMvc.perform(post("/api/v1/customers/register").contentType("application/json").content(customer))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.tenantId").isString()).andExpect(jsonPath("$.membershipId").isString());
+        mockMvc.perform(post("/api/v1/customers/register").contentType("application/json").content(customer))
+                .andExpect(status().isConflict());
+    }
 }

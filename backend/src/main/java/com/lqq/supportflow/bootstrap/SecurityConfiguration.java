@@ -21,6 +21,7 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/api/v1/tenants/register").permitAll()
+                        .requestMatchers("/api/v1/customers/register").permitAll()
                         .anyRequest().authenticated())
                 .build();
     }
