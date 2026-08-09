@@ -3,13 +3,14 @@ package com.lqq.supportflow.model.infrastructure.security;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
+import com.lqq.supportflow.model.domain.ModelSecretPort;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
 
 @Component
-public class ApiKeyCipher {
+public class ApiKeyCipher implements ModelSecretPort {
 
     private static final int NONCE_BYTES = 12;
     private final SecureRandom random = new SecureRandom();
@@ -26,6 +27,11 @@ public class ApiKeyCipher {
             System.arraycopy(encrypted, 0, payload, nonce.length, encrypted.length);
             return Base64.getEncoder().encodeToString(payload);
         } catch (Exception exception) { throw new IllegalStateException("cannot encrypt model API key", exception); }
+    }
+    @Override public String encrypt(String plaintext) {
+        String masterKey = System.getenv("MODEL_SECRET_MASTER_KEY");
+        if (masterKey == null || masterKey.isBlank()) throw new IllegalStateException("MODEL_SECRET_MASTER_KEY is required");
+        return encrypt(plaintext, masterKey);
     }
 
     public String decrypt(String ciphertext, String masterKeyBase64) {

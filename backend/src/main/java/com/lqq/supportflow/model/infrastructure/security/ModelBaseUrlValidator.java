@@ -1,10 +1,11 @@
 package com.lqq.supportflow.model.infrastructure.security;
 
 import java.net.URI;
+import com.lqq.supportflow.model.domain.ModelUrlPolicy;
 import org.springframework.stereotype.Component;
 
 @Component
-public class ModelBaseUrlValidator {
+public class ModelBaseUrlValidator implements ModelUrlPolicy {
 
     public void validate(String value) {
         URI uri = URI.create(value);
