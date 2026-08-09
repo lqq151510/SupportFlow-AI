@@ -8,6 +8,13 @@ spring:
   flyway:
     locations: classpath:db/migration
 
+supportflow:
+  jwt:
+    # 本地测试默认值；Docker 和真实环境必须通过 SUPPORTFLOW_JWT_SECRET_BASE64 覆盖。
+    secret-base64: ${SUPPORTFLOW_JWT_SECRET_BASE64:c3VwcG9ydGZsb3ctbG9jYWwtb25seS1zaWduaW5nLWtleS0zMmJ5dGVzLQ==}
+    access-token-ttl: PT15M
+    refresh-token-ttl: P7D
+
 server:
   shutdown: graceful
 
