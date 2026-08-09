@@ -245,8 +245,11 @@ class SupportFlowApplicationTest {
         Number knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
         String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId.longValue() + "/documents";
         String document = "{\"fileName\":\"policy.txt\",\"content\":\"Refund policy content\"}";
-        mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING"));
+        MvcResult uploaded = mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING")).andReturn();
+        Number documentId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(get(path + "/" + documentId.longValue()).header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("EMBEDDING")).andExpect(jsonPath("$.chunkCount").value(1));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + attackerToken).contentType("application/json")
