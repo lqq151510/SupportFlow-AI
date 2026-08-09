@@ -1,7 +1,9 @@
 package com.lqq.supportflow;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
@@ -28,5 +30,17 @@ class SupportFlowApplicationTest {
         mockMvc.perform(get("/actuator/health").header("X-Request-Id", "health-check-1"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Request-Id", "health-check-1"));
+    }
+
+    @Test
+    void tenantRegistrationCreatesAdminAndRejectsDuplicateTenantCode() throws Exception {
+        String body = """
+                {"tenantCode":"acme-shop","tenantName":"Acme Shop","email":"admin@acme.test","displayName":"Acme Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(body))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.tenantId").isString())
+                .andExpect(jsonPath("$.userId").isString()).andExpect(jsonPath("$.membershipId").isString());
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(body))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
     }
 }

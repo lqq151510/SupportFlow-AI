@@ -4,11 +4,22 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.dao.DuplicateKeyException;
+import com.lqq.supportflow.shared.ConflictException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler({ConflictException.class, DuplicateKeyException.class})
+    ProblemDetail handleConflict(RuntimeException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        problem.setType(URI.create("https://supportflow.dev/problems/conflict"));
+        problem.setProperty("code", "RESOURCE_CONFLICT");
+        problem.setProperty("requestId", request.getHeader(RequestIdFilter.REQUEST_ID_HEADER));
+        return problem;
+    }
 
     @ExceptionHandler(IllegalArgumentException.class)
     ProblemDetail handleIllegalArgument(IllegalArgumentException exception, HttpServletRequest request) {
