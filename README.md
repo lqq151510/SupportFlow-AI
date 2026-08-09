@@ -26,9 +26,21 @@ mvn spring-boot:run
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
+
+## 浏览器验收
+
+先启动后端与前端开发服务，再运行消费者到坐席的真实主流程：
+
+```bash
+SUPPORTFLOW_API_BASE_URL=http://localhost:8080 \
+PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+npm --prefix frontend run test:e2e
+```
+
+该用例覆盖消费者注册、创建会话、人工转接 SSE、坐席登录和工单可见性；GitHub Actions 会自动执行它。
 
 ## Docker 基础设施
 
@@ -49,4 +61,4 @@ cd frontend && npm run build
 docker compose config --quiet
 ```
 
-架构与接口说明见 [docs/architecture.md](docs/architecture.md)、[身份契约](docs/contracts/authentication.md)、[幂等契约](docs/contracts/idempotency.md) 和 [docs/adr](docs/adr)。
+架构与接口说明见 [docs/architecture.md](docs/architecture.md)、[ER 图](docs/er-diagram.md)、[身份契约](docs/contracts/authentication.md)、[幂等契约](docs/contracts/idempotency.md) 和 [docs/adr](docs/adr)。
