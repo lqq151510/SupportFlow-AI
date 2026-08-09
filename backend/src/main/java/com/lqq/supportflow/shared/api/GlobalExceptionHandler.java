@@ -5,6 +5,7 @@ import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.authentication.BadCredentialsException;
 import com.lqq.supportflow.shared.ConflictException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -26,6 +27,15 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
         problem.setType(URI.create("https://supportflow.dev/problems/invalid-request"));
         problem.setProperty("code", "INVALID_REQUEST");
+        problem.setProperty("requestId", request.getHeader(RequestIdFilter.REQUEST_ID_HEADER));
+        return problem;
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    ProblemDetail handleBadCredentials(BadCredentialsException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "invalid credentials");
+        problem.setType(URI.create("https://supportflow.dev/problems/invalid-credentials"));
+        problem.setProperty("code", "INVALID_CREDENTIALS");
         problem.setProperty("requestId", request.getHeader(RequestIdFilter.REQUEST_ID_HEADER));
         return problem;
     }

@@ -54,4 +54,28 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post("/api/v1/customers/register").contentType("application/json").content(customer))
                 .andExpect(status().isConflict());
     }
+
+    @Test
+    void loginIssuesTokenPairAndRejectsInvalidCredentials() throws Exception {
+        String registration = """
+                {"tenantCode":"login-shop","tenantName":"Login Shop","email":"admin@login.test","displayName":"Login Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(registration))
+                .andExpect(status().isCreated());
+
+        String login = """
+                {"tenantCode":"login-shop","email":"admin@login.test","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/auth/login").contentType("application/json").content(login))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty());
+
+        String invalidLogin = """
+                {"tenantCode":"login-shop","email":"admin@login.test","password":"wrong-password"}
+                """;
+        mockMvc.perform(post("/api/v1/auth/login").contentType("application/json").content(invalidLogin))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
 }
