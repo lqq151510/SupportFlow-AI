@@ -1,0 +1,4 @@
+package com.lqq.supportflow.commerce.application;
+import com.lqq.supportflow.commerce.domain.CustomerOrderPort; import com.lqq.supportflow.commerce.domain.RefundEligibility; import java.time.Duration; import java.time.Instant; import org.springframework.stereotype.Service;
+@Service public class CheckRefundEligibility { private final CustomerOrderPort orders; public CheckRefundEligibility(CustomerOrderPort orders){this.orders=orders;}
+ public RefundEligibility check(Long tenantId,Long customerId,String orderNo){return orders.findByOrderNo(tenantId,customerId,orderNo).map(order->{if(!"PAID".equals(order.status())) return new RefundEligibility(false,"order is not paid"); if(Duration.between(order.createdAt(),Instant.now()).toDays()>30)return new RefundEligibility(false,"refund window expired"); return new RefundEligibility(true,"within 30-day refund window");}).orElseThrow(IllegalArgumentException::new);}}

@@ -1,0 +1,4 @@
+package com.lqq.supportflow.commerce.api;
+import com.lqq.supportflow.commerce.application.CheckRefundEligibility; import com.lqq.supportflow.commerce.domain.RefundEligibility; import com.lqq.supportflow.shared.AuthenticatedPrincipal; import org.springframework.security.core.annotation.AuthenticationPrincipal; import org.springframework.web.bind.annotation.*;
+@RestController @RequestMapping("/api/v1/customer/orders") public class RefundEligibilityController { private final CheckRefundEligibility service; public RefundEligibilityController(CheckRefundEligibility service){this.service=service;}
+ @GetMapping("/{orderNo}/refund-eligibility") RefundEligibility check(@AuthenticationPrincipal AuthenticatedPrincipal principal,@PathVariable String orderNo){return service.check(principal.tenantId(),principal.userId(),orderNo);}}

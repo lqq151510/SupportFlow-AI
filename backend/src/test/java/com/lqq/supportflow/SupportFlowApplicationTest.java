@@ -227,6 +227,9 @@ class SupportFlowApplicationTest {
         mockMvc.perform(get("/api/v1/customer/orders/DEMO-001/shipment").header("Authorization", "Bearer " + customerAToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackingNo").value("SF-DEMO-001"));
+        mockMvc.perform(get("/api/v1/customer/orders/DEMO-001/refund-eligibility").header("Authorization", "Bearer " + customerAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true));
     }
 
     private void registerTenant(String tenantCode, String email) throws Exception {
