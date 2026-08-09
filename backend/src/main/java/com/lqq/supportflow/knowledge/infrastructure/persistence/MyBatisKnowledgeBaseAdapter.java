@@ -1,0 +1,3 @@
+package com.lqq.supportflow.knowledge.infrastructure.persistence;
+import com.lqq.supportflow.knowledge.domain.*; import java.time.Instant; import org.springframework.stereotype.Component;
+@Component public class MyBatisKnowledgeBaseAdapter implements KnowledgeBasePort { private final KnowledgeBaseMapper mapper; public MyBatisKnowledgeBaseAdapter(KnowledgeBaseMapper mapper){this.mapper=mapper;} public KnowledgeBase create(Long tenantId,String name,String description){Instant now=Instant.now();KnowledgeBaseEntity e=new KnowledgeBaseEntity();e.tenantId=tenantId;e.name=name;e.description=description;e.status="ACTIVE";e.createdAt=now;e.updatedAt=now;mapper.insert(e);return new KnowledgeBase(e.id,e.name,e.description,e.status);}}
