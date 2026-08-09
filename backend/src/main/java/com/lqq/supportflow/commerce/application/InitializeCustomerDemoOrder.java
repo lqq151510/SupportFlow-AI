@@ -12,9 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class InitializeCustomerDemoOrder {
 
     private final CustomerOrderPort orders;
+    private final com.lqq.supportflow.commerce.domain.ShipmentPort shipments;
 
-    public InitializeCustomerDemoOrder(CustomerOrderPort orders) {
-        this.orders = orders;
+    public InitializeCustomerDemoOrder(CustomerOrderPort orders, com.lqq.supportflow.commerce.domain.ShipmentPort shipments) {
+        this.orders = orders; this.shipments = shipments;
     }
 
     @EventListener
@@ -23,6 +24,7 @@ public class InitializeCustomerDemoOrder {
         TenantContext.set(new AuthenticatedPrincipal(event.customerId(), event.tenantId(), 0L, "CUSTOMER"));
         try {
             orders.createDemoOrder(event.tenantId(), event.customerId());
+            shipments.createDemo(event.tenantId(), event.customerId());
         } finally {
             TenantContext.clear();
         }
