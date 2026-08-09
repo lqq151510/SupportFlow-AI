@@ -19,6 +19,10 @@ supportflow:
   search:
     elasticsearch:
       enabled: false
+  knowledge:
+    retrieval:
+      minimum-score: 0.0
+      minimum-citations: 1
   generation:
     redis:
       enabled: false
