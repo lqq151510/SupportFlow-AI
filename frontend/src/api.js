@@ -9,3 +9,13 @@ export async function getOperationsOverview() {
   if (!response.ok) throw new Error(`运营数据加载失败 (${response.status})`);
   return response.json();
 }
+
+export async function getTickets() {
+  const token = localStorage.getItem('supportflow.accessToken');
+  if (!token) throw new Error('请先登录以查看工单');
+  const response = await fetch(`${API_BASE_URL}/api/v1/admin/tickets`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`工单加载失败 (${response.status})`);
+  return response.json();
+}
