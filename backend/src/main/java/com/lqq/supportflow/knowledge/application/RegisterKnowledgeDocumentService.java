@@ -1,0 +1,3 @@
+package com.lqq.supportflow.knowledge.application;
+import com.lqq.supportflow.knowledge.domain.*; import com.lqq.supportflow.shared.ConflictException; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional;
+@Service public class RegisterKnowledgeDocumentService { private final KnowledgeDocumentPort documents; public RegisterKnowledgeDocumentService(KnowledgeDocumentPort documents){this.documents=documents;} @Transactional public KnowledgeDocument register(Long t,Long b,String f,String content){String h=ContentHasher.sha256(content);if(documents.exists(t,b,h))throw new ConflictException("duplicate document content");return documents.save(t,b,f,h);}}

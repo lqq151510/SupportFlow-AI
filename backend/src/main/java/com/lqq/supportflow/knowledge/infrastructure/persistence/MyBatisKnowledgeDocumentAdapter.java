@@ -1,0 +1,5 @@
+package com.lqq.supportflow.knowledge.infrastructure.persistence;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper; import com.lqq.supportflow.knowledge.domain.*; import java.time.Instant; import org.springframework.stereotype.Component;
+@Component public class MyBatisKnowledgeDocumentAdapter implements KnowledgeDocumentPort { private final KnowledgeDocumentMapper mapper; public MyBatisKnowledgeDocumentAdapter(KnowledgeDocumentMapper mapper){this.mapper=mapper;}
+ public boolean exists(Long t,Long b,String h){return mapper.exists(new QueryWrapper<KnowledgeDocumentEntity>().eq("tenant_id",t).eq("knowledge_base_id",b).eq("content_hash",h));}
+ public KnowledgeDocument save(Long t,Long b,String f,String h){Instant now=Instant.now();KnowledgeDocumentEntity e=new KnowledgeDocumentEntity();e.tenantId=t;e.knowledgeBaseId=b;e.fileName=f;e.contentHash=h;e.status=IngestionStatus.UPLOADED.name();e.retryCount=0;e.createdAt=now;e.updatedAt=now;mapper.insert(e);return new KnowledgeDocument(e.id,f,h,IngestionStatus.UPLOADED);}}
