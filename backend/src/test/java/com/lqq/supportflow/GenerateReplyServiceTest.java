@@ -34,8 +34,8 @@ class GenerateReplyServiceTest {
         new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), new ObjectMapper())
                 .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "订单到哪里了"));
 
-        verify(events).append(3L, "text.delta", "{\"text\":\"您好\"}");
-        verify(events).append(3L, "text.delta", "{\"text\":\"，订单已发货\"}");
+        verify(events).append(1L, 3L, "text.delta", "{\"text\":\"您好\"}");
+        verify(events).append(1L, 3L, "text.delta", "{\"text\":\"，订单已发货\"}");
         verify(lifecycle).complete(any(), eq("您好，订单已发货"));
     }
 
@@ -59,6 +59,6 @@ class GenerateReplyServiceTest {
 
         verify(tools).execute(eq(1L), eq(4L), eq("refund.request"), eq(java.util.Map.of("orderNo", "DEMO-001")));
         verify(lifecycle).handoff(any(), eq("high-risk action requires approval"));
-        verify(events).append(eq(3L), eq("tool.result"), any());
+        verify(events).append(eq(1L), eq(3L), eq("tool.result"), any());
     }
 }

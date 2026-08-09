@@ -27,22 +27,22 @@ public class RedisGenerationEventStore implements GenerationEventStore {
     }
 
     @Override
-    public void append(Long generationId, String type, String data) {
-        String key = streamKey(generationId);
+    public void append(Long tenantId, Long generationId, String type, String data) {
+        String key = streamKey(tenantId, generationId);
         redis.opsForStream().add(StreamRecords.newRecord().in(key).ofMap(Map.of("type", type, "data", data)));
         redis.expire(key, ttl);
     }
 
     @Override
-    public void appendIfAbsent(Long generationId, String type, String data) {
-        String marker = streamKey(generationId) + ":once:" + type;
+    public void appendIfAbsent(Long tenantId, Long generationId, String type, String data) {
+        String marker = streamKey(tenantId, generationId) + ":once:" + type;
         Boolean claimed = redis.opsForValue().setIfAbsent(marker, "1", ttl);
-        if (Boolean.TRUE.equals(claimed)) append(generationId, type, data);
+        if (Boolean.TRUE.equals(claimed)) append(tenantId, generationId, type, data);
     }
 
     @Override
-    public List<GenerationEvent> readAfter(Long generationId, String lastEventId) {
-        return redis.opsForStream().range(streamKey(generationId), Range.unbounded()).stream()
+    public List<GenerationEvent> readAfter(Long tenantId, Long generationId, String lastEventId) {
+        return redis.opsForStream().range(streamKey(tenantId, generationId), Range.unbounded()).stream()
                 .filter(record -> lastEventId == null || lastEventId.isBlank()
                         || compareRecordIds(record.getId().getValue(), lastEventId) > 0)
                 .map(record -> new GenerationEvent(record.getId().getValue(),
@@ -51,7 +51,7 @@ public class RedisGenerationEventStore implements GenerationEventStore {
                 .toList();
     }
 
-    private String streamKey(Long generationId) { return "supportflow:generation:" + generationId + ":events"; }
+    private String streamKey(Long tenantId, Long generationId) { return "supportflow:tenant:" + tenantId + ":generation:" + generationId + ":events"; }
 
     private int compareRecordIds(String left, String right) {
         String[] a = left.split("-", 2); String[] b = right.split("-", 2);

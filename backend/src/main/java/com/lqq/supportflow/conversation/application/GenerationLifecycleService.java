@@ -17,7 +17,7 @@ public class GenerationLifecycleService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean start(GenerationRequestedEvent request) {
         boolean started = conversations.startGeneration(request.tenantId(), request.conversationId(), request.generationId());
-        if (started) events.appendIfAbsent(request.generationId(), "generation.running", "{\"status\":\"RUNNING\"}");
+        if (started) events.appendIfAbsent(request.tenantId(), request.generationId(), "generation.running", "{\"status\":\"RUNNING\"}");
         return started;
     }
 
@@ -29,7 +29,7 @@ public class GenerationLifecycleService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handoff(GenerationRequestedEvent request, String reason) {
         conversations.requireHandoff(request.tenantId(), request.conversationId(), request.generationId());
-        events.appendIfAbsent(request.generationId(), "handoff.required", "{\"status\":\"HANDOFF_REQUIRED\"}");
+        events.appendIfAbsent(request.tenantId(), request.generationId(), "handoff.required", "{\"status\":\"HANDOFF_REQUIRED\"}");
         publisher.publishEvent(new HandoffRequiredEvent(request.tenantId(), request.customerId(), request.conversationId(), request.generationId(), reason));
     }
 }

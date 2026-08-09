@@ -30,7 +30,7 @@ public class GenerateReplyService {
             if (!lifecycle.start(request)) return;
             StringBuilder response = new StringBuilder(); Map<String, ToolCall> calls = new LinkedHashMap<>(); boolean failed = false; boolean requiresApproval = false;
             for (ModelStreamEvent event : models.stream(request.tenantId(), List.of(new ModelChatService.ChatMessage("user", request.content())), supportedTools()).toIterable()) {
-                events.append(request.generationId(), event.type(), event.data());
+                events.append(request.tenantId(), request.generationId(), event.type(), event.data());
                 if ("text.delta".equals(event.type())) response.append(json.readTree(event.data()).path("text").asText());
                 if ("tool.started".equals(event.type())) start(calls, event.data());
                 if ("tool.arguments.delta".equals(event.type())) appendArguments(calls, event.data());
@@ -43,7 +43,7 @@ public class GenerateReplyService {
 
     private void start(Map<String, ToolCall> calls, String data) throws Exception { JsonNode node = json.readTree(data); calls.put(node.path("callId").asText(), new ToolCall(node.path("name").asText())); }
     private void appendArguments(Map<String, ToolCall> calls, String data) throws Exception { JsonNode node = json.readTree(data); ToolCall call = calls.get(node.path("callId").asText()); if (call != null) call.arguments.append(node.path("argumentsDelta").asText()); }
-    private boolean executeTool(GenerationRequestedEvent request, Map<String, ToolCall> calls, String data) throws Exception { ToolCall call = calls.get(json.readTree(data).path("callId").asText()); if (call == null) return false; @SuppressWarnings("unchecked") Map<String, Object> arguments = json.convertValue(json.readTree(call.arguments.toString()), Map.class); var result = tools.execute(request.tenantId(), request.customerId(), call.name, arguments); events.append(request.generationId(), "tool.result", json.writeValueAsString(result)); return "PENDING_APPROVAL".equals(result.status()); }
+    private boolean executeTool(GenerationRequestedEvent request, Map<String, ToolCall> calls, String data) throws Exception { ToolCall call = calls.get(json.readTree(data).path("callId").asText()); if (call == null) return false; @SuppressWarnings("unchecked") Map<String, Object> arguments = json.convertValue(json.readTree(call.arguments.toString()), Map.class); var result = tools.execute(request.tenantId(), request.customerId(), call.name, arguments); events.append(request.tenantId(), request.generationId(), "tool.result", json.writeValueAsString(result)); return "PENDING_APPROVAL".equals(result.status()); }
     private List<ModelTool> supportedTools() { Map<String, Object> schema = Map.of("type", "object", "properties", Map.of("orderNo", Map.of("type", "string")), "required", List.of("orderNo"), "additionalProperties", false); return List.of(new ModelTool("order.lookup", "Look up the customer's order.", schema), new ModelTool("shipment.track", "Track a customer shipment.", schema), new ModelTool("refund.checkEligibility", "Check whether an order can be refunded.", schema), new ModelTool("refund.request", "Request a refund; requires human approval.", schema), new ModelTool("compensation.issue", "Issue compensation; requires human approval.", schema)); }
     private static final class ToolCall { private final String name; private final StringBuilder arguments = new StringBuilder(); private ToolCall(String name) { this.name = name; } }
 }
