@@ -9,4 +9,6 @@ public interface RefreshTokenPort {
     boolean isActive(Long userId, Long tenantId, String jti, String rawToken, Instant now);
 
     void revoke(String jti, Instant revokedAt);
+
+    void revokeAllForUserInTenant(Long userId, Long tenantId, Instant revokedAt);
 }

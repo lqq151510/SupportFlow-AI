@@ -1,5 +1,6 @@
 package com.lqq.supportflow.identity.api;
 import com.lqq.supportflow.identity.application.LoginService;
+import com.lqq.supportflow.identity.application.ChangePasswordService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,9 +16,11 @@ import com.lqq.supportflow.identity.domain.AccessTokenSubject;
 public class AuthController {
 
     private final LoginService service;
+    private final ChangePasswordService changePassword;
 
-    public AuthController(LoginService service) {
+    public AuthController(LoginService service, ChangePasswordService changePassword) {
         this.service = service;
+        this.changePassword = changePassword;
     }
 
     @PostMapping("/login")
@@ -39,5 +42,13 @@ public class AuthController {
     @org.springframework.web.bind.annotation.GetMapping("/session")
     AccessTokenSubject session(@AuthenticationPrincipal AccessTokenSubject subject) {
         return subject;
+    }
+
+    @PostMapping("/change-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void changePassword(
+            @AuthenticationPrincipal AccessTokenSubject principal,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        changePassword.change(principal.userId(), principal.tenantId(), request.currentPassword(), request.newPassword());
     }
 }

@@ -35,6 +35,16 @@ public class RefreshTokenStore implements RefreshTokenPort {
         token.revokedAt = revokedAt;
         mapper.update(token, new QueryWrapper<RefreshTokenEntity>().eq("jti", jti).isNull("revoked_at"));
     }
+
+    @Override
+    public void revokeAllForUserInTenant(Long userId, Long tenantId, Instant revokedAt) {
+        RefreshTokenEntity token = new RefreshTokenEntity();
+        token.revokedAt = revokedAt;
+        mapper.update(token, new QueryWrapper<RefreshTokenEntity>()
+                .eq("user_id", userId)
+                .eq("tenant_id", tenantId)
+                .isNull("revoked_at"));
+    }
     private String hash(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
         catch (Exception exception) { throw new IllegalStateException("SHA-256 is unavailable", exception); }

@@ -28,6 +28,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/tenants/register").permitAll()
                         .requestMatchers("/api/v1/customers/register").permitAll()
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole("TENANT_ADMIN")
                         .anyRequest().authenticated())
                 .build();
     }

@@ -140,4 +140,78 @@ class SupportFlowApplicationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("TENANT_ADMIN"));
     }
+
+    @Test
+    void tenantAdminManagesOnlyItsActiveMembers() throws Exception {
+        String registration = """
+                {"tenantCode":"admin-shop","tenantName":"Admin Shop","email":"admin@members.test","displayName":"Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(registration))
+                .andExpect(status().isCreated());
+        String adminToken = loginAccessToken("admin-shop", "admin@members.test", "safe-password-123");
+
+        String member = """
+                {"email":"agent@members.test","displayName":"Support Agent","password":"safe-password-456","role":"AGENT"}
+                """;
+        MvcResult memberResult = mockMvc.perform(post("/api/v1/admin/members")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content(member))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.userId").isNumber())
+                .andExpect(jsonPath("$.membershipId").isNumber())
+                .andReturn();
+        Number membershipId = JsonPath.read(memberResult.getResponse().getContentAsString(), "$.membershipId");
+        mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                        .content("{\"tenantCode\":\"admin-shop\",\"email\":\"agent@members.test\",\"password\":\"safe-password-456\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/v1/admin/members/" + membershipId.longValue() + "/status")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"status\":\"DISABLED\"}"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                        .content("{\"tenantCode\":\"admin-shop\",\"email\":\"agent@members.test\",\"password\":\"safe-password-456\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void passwordChangeRevokesRefreshTokensAndRequiresNewPassword() throws Exception {
+        String registration = """
+                {"tenantCode":"password-shop","tenantName":"Password Shop","email":"admin@password.test","displayName":"Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(registration))
+                .andExpect(status().isCreated());
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                        .content("{\"tenantCode\":\"password-shop\",\"email\":\"admin@password.test\",\"password\":\"safe-password-123\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String accessToken = JsonPath.read(loginResult.getResponse().getContentAsString(), "$.accessToken");
+        String refreshToken = JsonPath.read(loginResult.getResponse().getContentAsString(), "$.refreshToken");
+
+        mockMvc.perform(post("/api/v1/auth/change-password")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType("application/json")
+                        .content("{\"currentPassword\":\"safe-password-123\",\"newPassword\":\"safe-password-789\"}"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/refresh").contentType("application/json")
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                        .content("{\"tenantCode\":\"password-shop\",\"email\":\"admin@password.test\",\"password\":\"safe-password-123\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                        .content("{\"tenantCode\":\"password-shop\",\"email\":\"admin@password.test\",\"password\":\"safe-password-789\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private String loginAccessToken(String tenantCode, String email, String password) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                        .content("{\"tenantCode\":\"" + tenantCode + "\",\"email\":\"" + email + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return JsonPath.read(result.getResponse().getContentAsString(), "$.accessToken");
+    }
 }
