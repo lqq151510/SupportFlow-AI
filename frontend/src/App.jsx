@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {decideApproval, getApprovals, getOperationsOverview, getTickets} from './api.js';
+import {decideApproval, getApprovals, getCustomerOrders, getOperationsOverview, getSession, getTickets, login} from './api.js';
 import {createRoot} from 'react-dom/client';
 import {LayoutDashboard, Ticket, Users, BookOpen, Workflow, BarChart3, Settings, Search, Bell, MessageSquare, ChevronDown, Plus, Upload, FileText, CheckCircle2, Clock3, AlertTriangle, ArrowRight, Bot, ShieldCheck, SlidersHorizontal, Send, ExternalLink, RefreshCcw, ClipboardList} from 'lucide-react';
 import './styles.css';
@@ -7,6 +7,8 @@ import './styles.css';
 const nav = [
   ['概览','overview',LayoutDashboard], ['工单','tickets',Ticket], ['客户','customers',Users], ['知识库','knowledge',BookOpen], ['自动化','automation',Workflow], ['分析','analytics',BarChart3], ['设置','settings',Settings]
 ];
+const agentNav = nav.filter(([, key]) => key !== 'customers');
+const customerNav = [['我的服务', 'customers', Users]];
 const docs = ['退款与退货政策','配送政策','退货处理指南','换货政策','国际运输常见问题','付款与退款常见问题','承运商规则与 SLA','假日配送公告'];
 const tickets = [
   {id:'TKT-52418', title:'订单退款与退货运费咨询', customer:'林小满', priority:'高', status:'处理中', sla:'剩余 42 分钟'},
@@ -16,13 +18,21 @@ const tickets = [
 ];
 
 export function App(){
-  const [page,setPage] = useState('overview');
+  const [session,setSession] = useState(undefined);
+  useEffect(()=>{getSession().then(setSession).catch(()=>localStorage.removeItem('supportflow.accessToken')).finally(()=>setSession(current=>current===undefined?null:current));},[]);
+  if(session===undefined)return <div className="login-shell">正在验证登录状态…</div>;
+  return session?<Workspace session={session}/>:<LoginPage onSignedIn={setSession}/>;
+}
+
+function Workspace({session}){
+  const [page,setPage] = useState(session.role==='CUSTOMER'?'customers':'overview');
   const [selected,setSelected] = useState(tickets[0]);
   const [notice,setNotice] = useState('');
   const [overview,setOverview] = useState(null);
   const [workspaceTickets,setWorkspaceTickets] = useState(tickets);
-  useEffect(()=>{getOperationsOverview().then(setOverview).catch(error=>setNotice(error.message));},[]);
-  useEffect(()=>{getTickets().then(items=>{const normalized=items.map(ticket=>({id:`TKT-${ticket.id}`,title:ticket.title,customer:`客户 #${ticket.customerId}`,priority:priorityLabel(ticket.priority),status:statusLabel(ticket.status),sla:slaLabel(ticket.resolutionDueAt)}));if(normalized.length){setWorkspaceTickets(normalized);setSelected(normalized[0]);}}).catch(error=>setNotice(error.message));},[]);
+  const nav = session.role==='CUSTOMER'?customerNav:agentNav;
+  useEffect(()=>{if(session.role==='CUSTOMER')return;getOperationsOverview().then(setOverview).catch(error=>setNotice(error.message));},[session.role]);
+  useEffect(()=>{if(session.role==='CUSTOMER')return;getTickets().then(items=>{const normalized=items.map(ticket=>({id:`TKT-${ticket.id}`,title:ticket.title,customer:`客户 #${ticket.customerId}`,priority:priorityLabel(ticket.priority),status:statusLabel(ticket.status),sla:slaLabel(ticket.resolutionDueAt)}));if(normalized.length){setWorkspaceTickets(normalized);setSelected(normalized[0]);}}).catch(error=>setNotice(error.message));},[session.role]);
   const navTo = (key)=>{setPage(key); setNotice('')};
   return <div className="app-shell">
     <header className="topbar"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className="global-search"><Search size={17}/><span>搜索工单、客户、文档…</span><kbd>⌘ K</kbd></div><div className="top-actions"><Bell size={19}/><span className="notification">3</span><MessageSquare size={19}/><div className="online"><i/>在线</div><div className="avatar">AS</div><ChevronDown size={16}/></div></header>
@@ -33,6 +43,30 @@ export function App(){
 const priorityLabel=(priority)=>({LOW:'低',NORMAL:'普通',HIGH:'高',URGENT:'紧急'})[priority]||priority;
 const statusLabel=(status)=>({NEW:'待处理',OPEN:'处理中',PENDING_CUSTOMER:'等待客户',PENDING_APPROVAL:'待审批',RESOLVED:'已解决',CLOSED:'已关闭'})[status]||status;
 const slaLabel=(dueAt)=>{const minutes=Math.round((new Date(dueAt).getTime()-Date.now())/60000);return minutes<0?`已超时 ${Math.abs(minutes)} 分钟`:`剩余 ${minutes} 分钟`;};
+
+function LoginPage({onSignedIn}) {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSubmitting(true);
+    const values = new FormData(event.currentTarget);
+    try {
+      const tokens = await login({tenantCode:values.get('tenantCode'), email:values.get('email'), password:values.get('password')});
+      localStorage.setItem('supportflow.accessToken', tokens.accessToken);
+      localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
+      onSignedIn(await getSession());
+    } catch (loginError) {
+      localStorage.removeItem('supportflow.accessToken');
+      localStorage.removeItem('supportflow.refreshToken');
+      setError(loginError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><h1>登录服务工作台</h1><p>使用租户代码、邮箱和密码进入消费者或坐席视图。</p><form onSubmit={submit}><label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization"/></label><label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required autoComplete="current-password"/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary>{submitting?'登录中…':'登录'}</Button></form><p className="safe-note"><ShieldCheck size={15}/>登录令牌只保存在当前浏览器本地存储中。</p></section></main>;
+}
 
 function Approvals({setNotice}) {
   const [approvals, setApprovals] = useState([]);
