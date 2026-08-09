@@ -20,6 +20,22 @@ export async function getTickets() {
   return response.json();
 }
 
+async function ticketRequest(ticketId, suffix, options = {}) {
+  const token = localStorage.getItem('supportflow.accessToken');
+  if (!token) throw new Error('请先登录以处理工单');
+  const response = await fetch(`${API_BASE_URL}/api/v1/admin/tickets/${ticketId}${suffix}`, {
+    ...options,
+    headers: {Authorization: `Bearer ${token}`, ...(options.body ? {'Content-Type': 'application/json'} : {}), ...options.headers},
+  });
+  if (!response.ok) throw new Error(`工单操作失败 (${response.status})`);
+  return response.json();
+}
+
+export const claimTicket = ticketId => ticketRequest(ticketId, '/claim', {method: 'POST'});
+export const changeTicketStatus = (ticketId, status) => ticketRequest(ticketId, '/status', {method: 'POST', body: JSON.stringify({status})});
+export const getTicketComments = ticketId => ticketRequest(ticketId, '/comments');
+export const addTicketComment = (ticketId, content) => ticketRequest(ticketId, '/comments', {method: 'POST', body: JSON.stringify({content})});
+
 export async function getApprovals() {
   const token = localStorage.getItem('supportflow.accessToken');
   if (!token) throw new Error('请先登录以查看审批');

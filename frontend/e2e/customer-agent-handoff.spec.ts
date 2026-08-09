@@ -2,7 +2,7 @@ import {expect, test} from '@playwright/test';
 
 const apiBaseUrl = process.env.SUPPORTFLOW_API_BASE_URL || 'http://localhost:8080';
 
-test('consumer registration and handoff become visible in the agent workspace', async ({browser, request, baseURL}) => {
+test('consumer handoff is claimed, documented, resolved and closed by an agent', async ({browser, request, baseURL}) => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 10_000)}`;
   const tenantCode = `e2e-${suffix}`;
   const adminEmail = `admin-${suffix}@supportflow.test`;
@@ -37,6 +37,16 @@ test('consumer registration and handoff become visible in the agent workspace', 
   await agentPage.getByRole('button', {name: '工单'}).click();
   await expect(agentPage.getByRole('heading', {name: '工单协同'})).toBeVisible();
   await expect(agentPage.getByRole('heading', {name: 'customer request requires an agent'})).toBeVisible();
+  await agentPage.getByRole('button', {name: '认领工单'}).click();
+  await expect(agentPage.getByText('工单已认领，现可继续处理。')).toBeVisible();
+  await agentPage.getByLabel('内部备注').fill('已核对订单信息，正在为客户跟进。');
+  await agentPage.getByRole('button', {name: '保存内部备注'}).click();
+  await expect(agentPage.getByText('已核对订单信息，正在为客户跟进。')).toBeVisible();
+  await agentPage.getByRole('button', {name: '标记已解决'}).click();
+  await expect(agentPage.getByText('工单已标记为已解决。')).toBeVisible();
+  await agentPage.getByRole('button', {name: '关闭工单'}).click();
+  await expect(agentPage.getByText('工单已关闭。')).toBeVisible();
+  await expect(agentPage.getByText(/· 已关闭 · 优先级/)).toBeVisible();
 
   await customerContext.close();
   await agentContext.close();
