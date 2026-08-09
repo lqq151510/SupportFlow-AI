@@ -3,6 +3,7 @@ package com.lqq.supportflow;
 import static org.assertj.core.api.Assertions.assertThat;
 import com.jayway.jsonpath.JsonPath;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.mock.web.MockMultipartFile;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -255,6 +257,23 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post(path).header("Authorization", "Bearer " + attackerToken).contentType("application/json")
                         .content("{\"fileName\":\"attack.txt\",\"content\":\"Other content\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void knowledgeDocumentUploadStoresAndExtractsTextBeforeChunking() throws Exception {
+        registerTenant("knowledge-upload", "admin@knowledge-upload.test");
+        String token = loginAccessToken("knowledge-upload", "admin@knowledge-upload.test", "safe-password-123");
+        MvcResult base = mockMvc.perform(post("/api/v1/admin/knowledge-bases")
+                        .header("Authorization", "Bearer " + token).contentType("application/json")
+                        .content("{\"name\":\"Returns\",\"description\":\"Return policy\"}"))
+                .andExpect(status().isCreated()).andReturn();
+        Number knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
+        String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId.longValue() + "/documents/upload";
+        MockMultipartFile file = new MockMultipartFile("file", "returns.md", "text/markdown", "# Returns\nItems can be returned within 30 days.".getBytes());
+        mockMvc.perform(multipart(path).file(file).header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING"));
+        mockMvc.perform(multipart(path).file(file).header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict());
     }
 
     private void registerTenant(String tenantCode, String email) throws Exception {
