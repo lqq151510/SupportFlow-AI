@@ -8,5 +8,10 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
+  webServer: {
+    command: 'npm run dev -- --host 127.0.0.1',
+    url: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+  },
   reporter: 'list',
 });
