@@ -1,6 +1,12 @@
 spring:
   application:
     name: supportflow-backend
+  datasource:
+    url: jdbc:h2:mem:supportflow;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password:
+  flyway:
+    locations: classpath:db/migration
 
 server:
   shutdown: graceful
