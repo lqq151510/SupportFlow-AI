@@ -3,6 +3,7 @@
 *.iml
 
 backend/target/
+/build/
 frontend/node_modules/
 frontend/dist/
 
