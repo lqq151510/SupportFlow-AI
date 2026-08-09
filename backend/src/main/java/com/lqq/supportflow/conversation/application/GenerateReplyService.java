@@ -28,16 +28,17 @@ public class GenerateReplyService {
         TenantContext.set(new AuthenticatedPrincipal(request.customerId(), request.tenantId(), 0L, "CUSTOMER"));
         try {
             if (!lifecycle.start(request)) return;
-            StringBuilder response = new StringBuilder(); Map<String, ToolCall> calls = new LinkedHashMap<>(); boolean failed = false; boolean requiresApproval = false;
+            long startedAt = System.nanoTime(); StringBuilder response = new StringBuilder(); Map<String, ToolCall> calls = new LinkedHashMap<>(); boolean failed = false; boolean requiresApproval = false; int inputTokens = 0; int outputTokens = 0;
             for (ModelStreamEvent event : models.stream(request.tenantId(), List.of(new ModelChatService.ChatMessage("user", request.content())), supportedTools()).toIterable()) {
                 events.append(request.tenantId(), request.generationId(), event.type(), event.data());
                 if ("text.delta".equals(event.type())) response.append(json.readTree(event.data()).path("text").asText());
                 if ("tool.started".equals(event.type())) start(calls, event.data());
                 if ("tool.arguments.delta".equals(event.type())) appendArguments(calls, event.data());
                 if ("tool.completed".equals(event.type())) requiresApproval |= executeTool(request, calls, event.data());
+                if ("usage.reported".equals(event.type())) { JsonNode usage = json.readTree(event.data()); inputTokens = usage.path("inputTokens").asInt(inputTokens); outputTokens = usage.path("outputTokens").asInt(outputTokens); }
                 if ("model.failed".equals(event.type())) failed = true;
             }
-            if (failed || requiresApproval) lifecycle.handoff(request, failed ? "model generation failed" : "high-risk action requires approval"); else lifecycle.complete(request, response.toString());
+            if (failed || requiresApproval) lifecycle.handoff(request, failed ? "model generation failed" : "high-risk action requires approval"); else lifecycle.complete(request, response.toString(), inputTokens, outputTokens, (System.nanoTime() - startedAt) / 1_000_000);
         } catch (Exception exception) { lifecycle.handoff(request, "model generation failed"); } finally { TenantContext.clear(); }
     }
 

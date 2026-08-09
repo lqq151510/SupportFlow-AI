@@ -29,6 +29,7 @@ class GenerateReplyServiceTest {
         when(models.stream(eq(1L), any(), any())).thenReturn(Flux.just(
                 new ModelStreamEvent("text.delta", "{\"text\":\"您好\"}"),
                 new ModelStreamEvent("text.delta", "{\"text\":\"，订单已发货\"}"),
+                new ModelStreamEvent("usage.reported", "{\"inputTokens\":11,\"outputTokens\":22}"),
                 new ModelStreamEvent("model.completed", "{}")));
 
         new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), new ObjectMapper())
@@ -36,7 +37,7 @@ class GenerateReplyServiceTest {
 
         verify(events).append(1L, 3L, "text.delta", "{\"text\":\"您好\"}");
         verify(events).append(1L, 3L, "text.delta", "{\"text\":\"，订单已发货\"}");
-        verify(lifecycle).complete(any(), eq("您好，订单已发货"));
+        verify(lifecycle).complete(any(), eq("您好，订单已发货"), eq(11), eq(22), any(Long.class));
     }
 
     @Test

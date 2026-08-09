@@ -22,8 +22,8 @@ public class GenerationLifecycleService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void complete(GenerationRequestedEvent request, String response) {
-        conversations.completeGeneration(request.tenantId(), request.conversationId(), request.generationId(), response);
+    public void complete(GenerationRequestedEvent request, String response, int inputTokens, int outputTokens, long latencyMs) {
+        conversations.completeGeneration(request.tenantId(), request.conversationId(), request.generationId(), response, inputTokens, outputTokens, latencyMs);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
