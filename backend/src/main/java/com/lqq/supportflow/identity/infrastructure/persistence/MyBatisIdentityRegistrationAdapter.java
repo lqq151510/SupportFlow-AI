@@ -11,6 +11,7 @@ import com.lqq.supportflow.identity.domain.TenantAdminRegistration;
 import com.lqq.supportflow.identity.domain.TenantAdminRegistrationResult;
 import com.lqq.supportflow.identity.domain.UserCredentialPort;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,10 @@ public class MyBatisIdentityRegistrationAdapter implements IdentityRegistrationP
     }
     public boolean tenantCodeExists(String code) { return tenantMapper.exists(new QueryWrapper<TenantEntity>().eq("code", code)); }
     public boolean emailExists(String email) { return userMapper.exists(new QueryWrapper<UserEntity>().eq("email", email)); }
+    public List<Long> findActiveTenantIds() {
+        return tenantMapper.selectList(new QueryWrapper<TenantEntity>().eq("status", "ACTIVE"))
+                .stream().map(tenant -> tenant.id).toList();
+    }
     public OptionalLong findActiveTenantIdByCode(String code) {
         TenantEntity tenant = tenantMapper.selectOne(new QueryWrapper<TenantEntity>().eq("code", code).eq("status", "ACTIVE"));
         return tenant == null ? OptionalLong.empty() : OptionalLong.of(tenant.id);

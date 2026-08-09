@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lqq.supportflow.eventing.OutboxService;
+import com.lqq.supportflow.identity.domain.IdentityRegistrationPort;
+import com.lqq.supportflow.shared.TenantContext;
 import com.lqq.supportflow.ticket.SlaDeadline;
 import com.lqq.supportflow.ticket.application.MonitorTicketSlaService;
 import com.lqq.supportflow.ticket.domain.SlaMonitorPort;
@@ -21,15 +23,18 @@ class MonitorTicketSlaServiceTest {
     void emitsOneOutboxEventOnlyAfterRecordingAnAlert() {
         SlaMonitorPort monitor = mock(SlaMonitorPort.class);
         OutboxService outbox = mock(OutboxService.class);
+        IdentityRegistrationPort tenants = mock(IdentityRegistrationPort.class);
         SlaDeadline deadline = new SlaDeadline(7L, 9L, "FIRST_RESPONSE", Instant.parse("2026-08-09T00:00:00Z"));
+        when(tenants.findActiveTenantIds()).thenReturn(List.of(7L));
         when(monitor.dueAt(any())).thenReturn(List.of(deadline));
         when(monitor.markAlerted(deadline)).thenReturn(true);
 
-        new MonitorTicketSlaService(monitor, outbox, new ObjectMapper()).monitor();
+        new MonitorTicketSlaService(monitor, outbox, new ObjectMapper(), tenants).monitor();
 
         verify(outbox).record(eq(7L), eq("ticket.sla.first_response"), eq("ticket"), eq("9"), argThat(payload ->
                 payload.contains("\"tenantId\":7") && payload.contains("\"ticketId\":9")
                         && payload.contains("\"type\":\"FIRST_RESPONSE\"")
                         && payload.contains("\"dueAt\":\"2026-08-09T00:00:00Z\"")));
+        org.assertj.core.api.Assertions.assertThat(TenantContext.current()).isEmpty();
     }
 }
