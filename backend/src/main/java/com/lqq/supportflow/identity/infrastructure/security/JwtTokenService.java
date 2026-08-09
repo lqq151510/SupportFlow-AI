@@ -1,8 +1,8 @@
 package com.lqq.supportflow.identity.infrastructure.security;
 
 import com.lqq.supportflow.identity.domain.IssuedToken;
-import com.lqq.supportflow.identity.domain.AccessTokenSubject;
 import com.lqq.supportflow.identity.domain.AccessTokenVerifier;
+import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 import com.lqq.supportflow.identity.domain.RefreshTokenSubject;
 import com.lqq.supportflow.identity.domain.RefreshTokenVerifier;
 import com.lqq.supportflow.identity.domain.TokenIssuer;
@@ -39,13 +39,13 @@ public class JwtTokenService implements TokenIssuer, RefreshTokenVerifier, Acces
     public String jti(String token) { return parse(token).getId(); }
 
     @Override
-    public Optional<AccessTokenSubject> verifyAccessToken(String rawToken) {
+    public Optional<AuthenticatedPrincipal> verifyAccessToken(String rawToken) {
         try {
             Claims claims = parse(rawToken);
             if (!"access".equals(claims.get("tokenType", String.class))) {
                 return Optional.empty();
             }
-            return Optional.of(new AccessTokenSubject(
+            return Optional.of(new AuthenticatedPrincipal(
                     Long.valueOf(claims.getSubject()),
                     Long.valueOf(claims.get("tenantId", String.class)),
                     Long.valueOf(claims.get("membershipId", String.class)),

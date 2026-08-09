@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import com.lqq.supportflow.identity.domain.AccessTokenSubject;
+import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -40,14 +40,14 @@ public class AuthController {
     }
 
     @org.springframework.web.bind.annotation.GetMapping("/session")
-    AccessTokenSubject session(@AuthenticationPrincipal AccessTokenSubject subject) {
+    AuthenticatedPrincipal session(@AuthenticationPrincipal AuthenticatedPrincipal subject) {
         return subject;
     }
 
     @PostMapping("/change-password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void changePassword(
-            @AuthenticationPrincipal AccessTokenSubject principal,
+            @AuthenticationPrincipal AuthenticatedPrincipal principal,
             @Valid @RequestBody ChangePasswordRequest request) {
         changePassword.change(principal.userId(), principal.tenantId(), request.currentPassword(), request.newPassword());
     }

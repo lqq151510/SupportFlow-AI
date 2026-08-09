@@ -2,7 +2,7 @@ package com.lqq.supportflow.identity.api;
 
 import com.lqq.supportflow.identity.application.ChangeMemberStatusService;
 import com.lqq.supportflow.identity.application.CreateMemberService;
-import com.lqq.supportflow.identity.domain.AccessTokenSubject;
+import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 import jakarta.validation.Valid;
 import java.net.URI;
 import org.springframework.http.ResponseEntity;
@@ -28,7 +28,7 @@ public class AdminMemberController {
 
     @PostMapping
     ResponseEntity<MemberResponse> create(
-            @AuthenticationPrincipal AccessTokenSubject principal,
+            @AuthenticationPrincipal AuthenticatedPrincipal principal,
             @Valid @RequestBody CreateMemberRequest request) {
         var result = createMembers.create(principal.tenantId(), request.email(), request.displayName(), request.password(), request.role());
         return ResponseEntity.created(URI.create("/api/v1/admin/members/" + result.membershipId()))
@@ -37,7 +37,7 @@ public class AdminMemberController {
 
     @PatchMapping("/{membershipId}/status")
     ResponseEntity<Void> changeStatus(
-            @AuthenticationPrincipal AccessTokenSubject principal,
+            @AuthenticationPrincipal AuthenticatedPrincipal principal,
             @PathVariable Long membershipId,
             @Valid @RequestBody ChangeMemberStatusRequest request) {
         changeStatus.change(principal.tenantId(), membershipId, request.status());
