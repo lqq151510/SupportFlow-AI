@@ -1,5 +1,6 @@
 package com.lqq.supportflow;
 
+import com.jayway.jsonpath.JsonPath;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -12,6 +13,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -77,5 +79,43 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post("/api/v1/auth/login").contentType("application/json").content(invalidLogin))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void refreshRotatesTokenAndLogoutRevokesIt() throws Exception {
+        String registration = """
+                {"tenantCode":"refresh-shop","tenantName":"Refresh Shop","email":"admin@refresh.test","displayName":"Refresh Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(registration))
+                .andExpect(status().isCreated());
+        String login = """
+                {"tenantCode":"refresh-shop","email":"admin@refresh.test","password":"safe-password-123"}
+                """;
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login").contentType("application/json").content(login))
+                .andExpect(status().isOk())
+                .andReturn();
+        String originalRefresh = JsonPath.read(loginResult.getResponse().getContentAsString(), "$.refreshToken");
+
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("{\"refreshToken\":\"" + originalRefresh + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+        String rotatedRefresh = JsonPath.read(refreshResult.getResponse().getContentAsString(), "$.refreshToken");
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("{\"refreshToken\":\"" + originalRefresh + "\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .contentType("application/json")
+                        .content("{\"refreshToken\":\"" + rotatedRefresh + "\"}"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("{\"refreshToken\":\"" + rotatedRefresh + "\"}"))
+                .andExpect(status().isUnauthorized());
     }
 }

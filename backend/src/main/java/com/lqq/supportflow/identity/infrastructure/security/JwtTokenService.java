@@ -1,20 +1,24 @@
 package com.lqq.supportflow.identity.infrastructure.security;
 
 import com.lqq.supportflow.identity.domain.IssuedToken;
+import com.lqq.supportflow.identity.domain.RefreshTokenSubject;
+import com.lqq.supportflow.identity.domain.RefreshTokenVerifier;
 import com.lqq.supportflow.identity.domain.TokenIssuer;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.security.Keys;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
+import java.util.Optional;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 
 @Component
-public class JwtTokenService implements TokenIssuer {
+public class JwtTokenService implements TokenIssuer, RefreshTokenVerifier {
     private final JwtProperties properties; private final Clock clock; private final SecretKey key;
     public JwtTokenService(JwtProperties properties) {
         this.properties = properties; this.clock = Clock.systemUTC(); this.key = Keys.hmacShaKeyFor(Base64.getDecoder().decode(properties.secretBase64()));
@@ -31,6 +35,24 @@ public class JwtTokenService implements TokenIssuer {
 
     public Claims parse(String token) { return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload(); }
     public String jti(String token) { return parse(token).getId(); }
+
+    @Override
+    public Optional<RefreshTokenSubject> verify(String rawToken) {
+        try {
+            Claims claims = parse(rawToken);
+            if (!"refresh".equals(claims.get("tokenType", String.class))) {
+                return Optional.empty();
+            }
+            return Optional.of(new RefreshTokenSubject(
+                    Long.valueOf(claims.getSubject()),
+                    Long.valueOf(claims.get("tenantId", String.class)),
+                    Long.valueOf(claims.get("membershipId", String.class)),
+                    claims.get("role", String.class),
+                    claims.getId()));
+        } catch (JwtException | IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+    }
 
     private IssuedToken issue(String tokenType, Long userId, Long tenantId, Long membershipId, String role, java.time.Duration ttl) {
         Instant now = clock.instant();

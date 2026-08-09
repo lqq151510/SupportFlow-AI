@@ -22,7 +22,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/api/v1/tenants/register").permitAll()
                         .requestMatchers("/api/v1/customers/register").permitAll()
-                        .requestMatchers("/api/v1/auth/login").permitAll()
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                         .anyRequest().authenticated())
                 .build();
     }
