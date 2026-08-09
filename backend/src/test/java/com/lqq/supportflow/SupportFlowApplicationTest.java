@@ -232,6 +232,28 @@ class SupportFlowApplicationTest {
                 .andExpect(jsonPath("$.eligible").value(true));
     }
 
+    @Test
+    void knowledgeDocumentRegistrationIsDeduplicatedAndTenantScoped() throws Exception {
+        registerTenant("knowledge-owner", "admin@knowledge-owner.test");
+        registerTenant("knowledge-attacker", "admin@knowledge-attacker.test");
+        String ownerToken = loginAccessToken("knowledge-owner", "admin@knowledge-owner.test", "safe-password-123");
+        String attackerToken = loginAccessToken("knowledge-attacker", "admin@knowledge-attacker.test", "safe-password-123");
+        MvcResult base = mockMvc.perform(post("/api/v1/admin/knowledge-bases")
+                        .header("Authorization", "Bearer " + ownerToken).contentType("application/json")
+                        .content("{\"name\":\"Policies\",\"description\":\"Support policies\"}"))
+                .andExpect(status().isCreated()).andReturn();
+        Number knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
+        String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId.longValue() + "/documents";
+        String document = "{\"fileName\":\"policy.txt\",\"content\":\"Refund policy content\"}";
+        mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("UPLOADED"));
+        mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
+        mockMvc.perform(post(path).header("Authorization", "Bearer " + attackerToken).contentType("application/json")
+                        .content("{\"fileName\":\"attack.txt\",\"content\":\"Other content\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
     private void registerTenant(String tenantCode, String email) throws Exception {
         String body = "{\"tenantCode\":\"" + tenantCode + "\",\"tenantName\":\"" + tenantCode
                 + "\",\"email\":\"" + email + "\",\"displayName\":\"Admin\",\"password\":\"safe-password-123\"}";
