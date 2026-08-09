@@ -40,7 +40,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:5173 \
 npm --prefix frontend run test:e2e
 ```
 
-该用例覆盖消费者注册、创建会话、人工转接 SSE、坐席登录和工单可见性；GitHub Actions 会自动执行它。
+该用例覆盖消费者注册、创建会话、人工转接 SSE，以及坐席登录、认领工单、记录内部备注、解决并关闭工单；GitHub Actions 会自动执行它。
 
 ## Docker 基础设施
 
