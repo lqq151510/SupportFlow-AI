@@ -75,3 +75,42 @@ export async function getCustomerOrders() {
   if (!response.ok) throw new Error(`订单加载失败 (${response.status})`);
   return response.json();
 }
+
+export async function createConversation() {
+  const token = localStorage.getItem('supportflow.accessToken');
+  const response = await fetch(`${API_BASE_URL}/api/v1/customer/conversations`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`会话创建失败 (${response.status})`);
+  return response.json();
+}
+
+export async function submitCustomerMessage(conversationId, content, idempotencyKey) {
+  const token = localStorage.getItem('supportflow.accessToken');
+  const response = await fetch(`${API_BASE_URL}/api/v1/customer/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error(`消息提交失败 (${response.status})`);
+  return response.json();
+}
+
+export async function readGenerationEvents(generationId, lastEventId) {
+  const token = localStorage.getItem('supportflow.accessToken');
+  const response = await fetch(`${API_BASE_URL}/api/v1/customer/generations/${generationId}/events`, {
+    headers: { Authorization: `Bearer ${token}`, ...(lastEventId ? {'Last-Event-ID': lastEventId} : {}) },
+  });
+  if (!response.ok) throw new Error(`生成事件读取失败 (${response.status})`);
+  return parseSse(await response.text());
+}
+
+function parseSse(payload) {
+  return payload.trim().split(/\r?\n\r?\n/).filter(Boolean).map(block => {
+    const fields = Object.fromEntries(block.split(/\r?\n/).map(line => {
+      const divider = line.indexOf(':');
+      return divider < 0 ? [line, ''] : [line.slice(0, divider), line.slice(divider + 1).trimStart()];
+    }));
+    return {id: fields.id, type: fields.event, data: JSON.parse(fields.data || '{}')};
+  });
+}
