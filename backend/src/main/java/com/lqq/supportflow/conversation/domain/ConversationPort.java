@@ -1,2 +1,2 @@
 package com.lqq.supportflow.conversation.domain;
-public interface ConversationPort { Conversation create(Long tenantId,Long customerId); boolean belongsTo(Long tenantId,Long customerId,Long conversationId); boolean ownsGeneration(Long tenantId,Long customerId,Long generationId); Generation submit(Long tenantId,Long conversationId,String content,String idempotencyKey); }
+public interface ConversationPort { Conversation create(Long tenantId,Long customerId); boolean belongsTo(Long tenantId,Long customerId,Long conversationId); boolean ownsGeneration(Long tenantId,Long customerId,Long generationId); Generation submit(Long tenantId,Long conversationId,String content,String idempotencyKey); Generation requireHandoff(Long tenantId,Long conversationId,Long generationId); }

@@ -292,6 +292,9 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
                         .contentType("application/json").content("{\"content\":\"Where is my order?\"}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.id").value(generationId.longValue()));
+        mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-2")
+                        .contentType("application/json").content("{\"content\":\"我要人工客服处理退款\"}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("HANDOFF_REQUIRED"));
     }
 
     private void registerTenant(String tenantCode, String email) throws Exception {
