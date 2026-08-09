@@ -24,6 +24,9 @@ supportflow:
       enabled: false
       ttl: PT10M
   eventing:
+    dispatch:
+      initial-delay: PT30S
+      fixed-delay: PT30S
     rocketmq:
       enabled: false
       nameserver: ${ROCKETMQ_NAMESERVER:localhost:9876}
