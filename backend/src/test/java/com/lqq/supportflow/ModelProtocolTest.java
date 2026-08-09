@@ -39,4 +39,38 @@ class ModelProtocolTest {
         assertThat(events).contains(new ModelEvent.ToolCallStarted("tool-1", "shipment.track"), new ModelEvent.TextDelta("正在查询"),
                 new ModelEvent.UsageReported(9, 5), new ModelEvent.ModelCompleted());
     }
+
+    @Test
+    void normalizesOpenAiArgumentDeltasCompletionAndProtocolErrors() {
+        var normalizer = new OpenAiCompatibleEventNormalizer(json);
+
+        List<ModelEvent> events = normalizer.normalize(Flux.just(
+                        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"tool-1\",\"function\":{\"name\":\"refund.check\",\"arguments\":\"{\\\"orderNo\\\":\\\"DEMO-001\\\"}\"}}]}}]}",
+                        "{not-json}",
+                        "[DONE]"))
+                .collectList().block();
+
+        assertThat(events).containsExactly(
+                new ModelEvent.ToolCallStarted("tool-1", "refund.check"),
+                new ModelEvent.ToolCallArgumentsDelta("tool-1", "{\"orderNo\":\"DEMO-001\"}"),
+                new ModelEvent.ModelFailed("PROTOCOL_ERROR", "invalid OpenAI-compatible event"),
+                new ModelEvent.ModelCompleted());
+    }
+
+    @Test
+    void normalizesAnthropicArgumentsStopUnknownAndProtocolErrors() {
+        var normalizer = new AnthropicMessagesEventNormalizer(json);
+
+        List<ModelEvent> events = normalizer.normalize(Flux.just(
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("content_block_delta", "{\"index\":2,\"delta\":{\"partial_json\":\"{\\\"orderNo\\\":\\\"DEMO-001\\\"}\"}}"),
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("content_block_stop", "{\"index\":2}"),
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("ping", "{}"),
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("message_delta", "not-json")))
+                .collectList().block();
+
+        assertThat(events).containsExactly(
+                new ModelEvent.ToolCallArgumentsDelta("2", "{\"orderNo\":\"DEMO-001\"}"),
+                new ModelEvent.ToolCallCompleted("2"),
+                new ModelEvent.ModelFailed("PROTOCOL_ERROR", "invalid Anthropic event"));
+    }
 }

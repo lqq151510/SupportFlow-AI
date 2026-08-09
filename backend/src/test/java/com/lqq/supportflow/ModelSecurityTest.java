@@ -23,4 +23,18 @@ class ModelSecurityTest {
         assertThatThrownBy(() -> validator.validate("http://api.example.com")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> validator.validate("https://127.0.0.1/v1")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test void rejectsInvalidCiphertextAndMasterKeyMaterial() {
+        ApiKeyCipher cipher = new ApiKeyCipher();
+
+        assertThatThrownBy(() -> cipher.encrypt("sk-secret", "not-base64"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("cannot encrypt model API key");
+        assertThatThrownBy(() -> cipher.decrypt("not-base64", MASTER_KEY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("cannot decrypt model API key");
+        assertThatThrownBy(() -> cipher.encrypt("sk-secret", "MTIz"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("cannot encrypt model API key");
+    }
 }
