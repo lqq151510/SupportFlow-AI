@@ -1,2 +1,6 @@
 package com.lqq.supportflow.conversation.domain;
-public record Conversation(Long id,ConversationStatus status) { }
+
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
+public record Conversation(@JsonSerialize(using = ToStringSerializer.class) Long id, ConversationStatus status) { }

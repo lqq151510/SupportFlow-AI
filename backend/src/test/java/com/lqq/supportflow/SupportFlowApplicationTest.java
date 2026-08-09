@@ -296,15 +296,15 @@ class SupportFlowApplicationTest {
         String token = loginAccessToken("conversation-shop", "customer@conversation.test", "safe-password-123");
         MvcResult created = mockMvc.perform(post("/api/v1/customer/conversations").header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated()).andReturn();
-        Number conversationId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
-        String path = "/api/v1/customer/conversations/" + conversationId.longValue() + "/messages";
+        String conversationId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        String path = "/api/v1/customer/conversations/" + conversationId + "/messages";
         MvcResult first = mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
                         .contentType("application/json").content("{\"content\":\"Where is my order?\"}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("QUEUED")).andReturn();
-        Number generationId = JsonPath.read(first.getResponse().getContentAsString(), "$.id");
+        String generationId = JsonPath.read(first.getResponse().getContentAsString(), "$.id");
         mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
                         .contentType("application/json").content("{\"content\":\"Where is my order?\"}"))
-                .andExpect(status().isAccepted()).andExpect(jsonPath("$.id").value(generationId.longValue()));
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.id").value(generationId));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-2")
                         .contentType("application/json").content("{\"content\":\"我要人工客服处理退款\"}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("HANDOFF_REQUIRED"));
@@ -355,8 +355,8 @@ class SupportFlowApplicationTest {
                         .header("Authorization", "Bearer " + customerToken))
                 .andExpect(status().isCreated())
                 .andReturn();
-        Number conversationId = JsonPath.read(conversation.getResponse().getContentAsString(), "$.id");
-        mockMvc.perform(post("/api/v1/customer/conversations/" + conversationId.longValue() + "/messages")
+        String conversationId = JsonPath.read(conversation.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(post("/api/v1/customer/conversations/" + conversationId + "/messages")
                         .header("Authorization", "Bearer " + customerToken)
                         .header("Idempotency-Key", "ticket-handoff-1")
                         .contentType("application/json")
@@ -370,8 +370,8 @@ class SupportFlowApplicationTest {
                 .andExpect(jsonPath("$[0].status").value("NEW"))
                 .andExpect(jsonPath("$[0].priority").value("NORMAL"))
                 .andReturn();
-        Number ticketId = JsonPath.read(tickets.getResponse().getContentAsString(), "$[0].id");
-        String ticketPath = "/api/v1/admin/tickets/" + ticketId.longValue();
+        String ticketId = JsonPath.read(tickets.getResponse().getContentAsString(), "$[0].id");
+        String ticketPath = "/api/v1/admin/tickets/" + ticketId;
         mockMvc.perform(post(ticketPath + "/claim").header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OPEN"));
         mockMvc.perform(post(ticketPath + "/comments").header("Authorization", "Bearer " + adminToken)
