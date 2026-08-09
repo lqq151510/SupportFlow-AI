@@ -276,6 +276,24 @@ class SupportFlowApplicationTest {
                 .andExpect(status().isConflict());
     }
 
+    @Test
+    void customerMessageSubmissionIsTenantScopedAndIdempotent() throws Exception {
+        registerTenant("conversation-shop", "admin@conversation.test");
+        registerCustomer("conversation-shop", "customer@conversation.test");
+        String token = loginAccessToken("conversation-shop", "customer@conversation.test", "safe-password-123");
+        MvcResult created = mockMvc.perform(post("/api/v1/customer/conversations").header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated()).andReturn();
+        Number conversationId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        String path = "/api/v1/customer/conversations/" + conversationId.longValue() + "/messages";
+        MvcResult first = mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
+                        .contentType("application/json").content("{\"content\":\"Where is my order?\"}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("QUEUED")).andReturn();
+        Number generationId = JsonPath.read(first.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
+                        .contentType("application/json").content("{\"content\":\"Where is my order?\"}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.id").value(generationId.longValue()));
+    }
+
     private void registerTenant(String tenantCode, String email) throws Exception {
         String body = "{\"tenantCode\":\"" + tenantCode + "\",\"tenantName\":\"" + tenantCode
                 + "\",\"email\":\"" + email + "\",\"displayName\":\"Admin\",\"password\":\"safe-password-123\"}";

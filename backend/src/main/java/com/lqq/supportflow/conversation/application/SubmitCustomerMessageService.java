@@ -1,0 +1,3 @@
+package com.lqq.supportflow.conversation.application;
+import com.lqq.supportflow.conversation.domain.*; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional;
+@Service public class SubmitCustomerMessageService { private final ConversationPort conversations; public SubmitCustomerMessageService(ConversationPort conversations){this.conversations=conversations;} @Transactional public Generation submit(Long tenantId,Long customerId,Long conversationId,String content,String idempotencyKey){if(!conversations.belongsTo(tenantId,customerId,conversationId))throw new IllegalArgumentException("conversation does not belong to customer");return conversations.submit(tenantId,conversationId,content,idempotencyKey);}}
