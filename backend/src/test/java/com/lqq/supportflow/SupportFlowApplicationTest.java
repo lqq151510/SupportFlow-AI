@@ -118,4 +118,26 @@ class SupportFlowApplicationTest {
                         .content("{\"refreshToken\":\"" + rotatedRefresh + "\"}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void accessTokenAuthenticatesSessionEndpoint() throws Exception {
+        String registration = """
+                {"tenantCode":"session-shop","tenantName":"Session Shop","email":"admin@session.test","displayName":"Session Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(registration))
+                .andExpect(status().isCreated());
+        String login = """
+                {"tenantCode":"session-shop","email":"admin@session.test","password":"safe-password-123"}
+                """;
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login").contentType("application/json").content(login))
+                .andExpect(status().isOk())
+                .andReturn();
+        String accessToken = JsonPath.read(loginResult.getResponse().getContentAsString(), "$.accessToken");
+
+        mockMvc.perform(get("/api/v1/auth/session"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/auth/session").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("TENANT_ADMIN"));
+    }
 }
