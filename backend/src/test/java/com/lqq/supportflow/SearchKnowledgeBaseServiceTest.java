@@ -17,6 +17,7 @@ class SearchKnowledgeBaseServiceTest {
     @Mock private KnowledgeBasePort bases;
     @Mock private KnowledgeSearchIndex index;
     @Mock private ModelEmbeddingService embeddings;
+    @Mock private KnowledgeSearchAuditPort audits;
     @InjectMocks private SearchKnowledgeBaseService service;
 
     @Test
@@ -25,9 +26,12 @@ class SearchKnowledgeBaseServiceTest {
         when(index.keywordSearch(1L, 2L, "refund policy", 20)).thenReturn(List.of(new RankedKnowledgeChunk(10L, 100L, "Refund policy", 5), new RankedKnowledgeChunk(11L, 101L, "Shipping policy", 2)));
         when(embeddings.embed(1L, List.of("refund policy"))).thenReturn(List.of(new float[]{0.2f, 0.4f}));
         when(index.vectorSearch(eq(1L), eq(2L), any(float[].class), eq(20))).thenReturn(List.of(new RankedKnowledgeChunk(10L, 100L, "Refund policy", 0.9)));
+        when(audits.save(eq(1L), eq(2L), eq("refund policy"), anyList())).thenReturn(300L);
 
-        List<KnowledgeCitation> citations = service.search(1L, 2L, "refund policy");
+        KnowledgeSearchResult result = service.search(1L, 2L, "refund policy");
+        List<KnowledgeCitation> citations = result.citations();
 
+        assertThat(result.searchId()).isEqualTo(300L);
         assertThat(citations).hasSize(2);
         assertThat(citations.getFirst().chunkId()).isEqualTo(10L);
         assertThat(citations.getFirst().rank()).isEqualTo(1);
