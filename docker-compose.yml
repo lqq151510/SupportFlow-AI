@@ -91,6 +91,7 @@ services:
       context: ./backend
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SUPPORTFLOW_JWT_SECRET_BASE64: ${SUPPORTFLOW_JWT_SECRET_BASE64:?set SUPPORTFLOW_JWT_SECRET_BASE64 in .env}
     ports:
       - "8080:8080"
     depends_on:
