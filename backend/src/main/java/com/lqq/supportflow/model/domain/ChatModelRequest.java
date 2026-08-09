@@ -2,7 +2,7 @@ package com.lqq.supportflow.model.domain;
 
 import java.util.List;
 
-public record ChatModelRequest(String model, List<ChatMessage> messages) {
+public record ChatModelRequest(Long tenantId, List<ChatMessage> messages) {
 
     public record ChatMessage(String role, String content) { }
 }
