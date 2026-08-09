@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {createConversation, decideApproval, getApprovals, getCustomerOrders, getOperationsOverview, getSession, getTickets, login, readGenerationEvents, submitCustomerMessage} from './api.js';
+import {createConversation, decideApproval, getApprovals, getCustomerOrders, getOperationsOverview, getSession, getTickets, login, readGenerationEvents, registerCustomer, submitCustomerMessage} from './api.js';
 import {createRoot} from 'react-dom/client';
 import {LayoutDashboard, Ticket, Users, BookOpen, Workflow, BarChart3, Settings, Search, Bell, MessageSquare, ChevronDown, Plus, Upload, FileText, CheckCircle2, Clock3, AlertTriangle, ArrowRight, Bot, ShieldCheck, SlidersHorizontal, Send, ExternalLink, RefreshCcw, ClipboardList} from 'lucide-react';
 import './styles.css';
@@ -47,12 +47,14 @@ const slaLabel=(dueAt)=>{const minutes=Math.round((new Date(dueAt).getTime()-Dat
 function LoginPage({onSignedIn}) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [mode, setMode] = useState('login');
   const submit = async (event) => {
     event.preventDefault();
     setError('');
     setSubmitting(true);
     const values = new FormData(event.currentTarget);
     try {
+      if (mode === 'register') await registerCustomer({tenantCode:values.get('tenantCode'), email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
       const tokens = await login({tenantCode:values.get('tenantCode'), email:values.get('email'), password:values.get('password')});
       localStorage.setItem('supportflow.accessToken', tokens.accessToken);
       localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
@@ -65,7 +67,8 @@ function LoginPage({onSignedIn}) {
       setSubmitting(false);
     }
   };
-  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><h1>登录服务工作台</h1><p>使用租户代码、邮箱和密码进入消费者或坐席视图。</p><form onSubmit={submit}><label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization"/></label><label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required autoComplete="current-password"/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary>{submitting?'登录中…':'登录'}</Button></form><p className="safe-note"><ShieldCheck size={15}/>登录令牌只保存在当前浏览器本地存储中。</p></section></main>;
+  const registering = mode === 'register';
+  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><h1>{registering?'创建消费者账户':'登录服务工作台'}</h1><p>{registering?'注册后会自动生成可演示的订单并进入消费者服务页。':'使用租户代码、邮箱和密码进入消费者或坐席视图。'}</p><form onSubmit={submit}><label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization"/></label>{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary>{submitting?(registering?'注册中…':'登录中…'):(registering?'注册并登录':'登录')}</Button></form><button className="text-link" onClick={()=>{setMode(registering?'login':'register');setError('');}}>{registering?'已有账户？返回登录':'新用户？注册消费者账户'}</button><p className="safe-note"><ShieldCheck size={15}/>登录令牌只保存在当前浏览器本地存储中。</p></section></main>;
 }
 
 function Approvals({setNotice}) {

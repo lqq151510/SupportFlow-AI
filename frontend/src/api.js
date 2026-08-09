@@ -56,6 +56,16 @@ export async function login({ tenantCode, email, password }) {
   return response.json();
 }
 
+export async function registerCustomer({ tenantCode, email, displayName, password }) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/customers/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenantCode, email, displayName, password }),
+  });
+  if (!response.ok) throw new Error('注册失败，请确认租户代码或更换邮箱');
+  return response.json();
+}
+
 export async function getSession() {
   const token = localStorage.getItem('supportflow.accessToken');
   if (!token) throw new Error('未登录');
