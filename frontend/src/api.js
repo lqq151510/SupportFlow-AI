@@ -19,3 +19,30 @@ export async function getTickets() {
   if (!response.ok) throw new Error(`工单加载失败 (${response.status})`);
   return response.json();
 }
+
+export async function getApprovals() {
+  const token = localStorage.getItem('supportflow.accessToken');
+  if (!token) throw new Error('请先登录以查看审批');
+  const response = await fetch(`${API_BASE_URL}/api/v1/admin/approvals`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`审批列表加载失败 (${response.status})`);
+  return response.json();
+}
+
+export async function decideApproval(approvalId, decision) {
+  const token = localStorage.getItem('supportflow.accessToken');
+  if (!token) throw new Error('请先登录以处理审批');
+  const idempotencyKey = `approval-${approvalId}-${decision.toLowerCase()}-${crypto.randomUUID()}`;
+  const response = await fetch(`${API_BASE_URL}/api/v1/admin/approvals/${approvalId}/decision`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify({ decision }),
+  });
+  if (!response.ok) throw new Error(`审批处理失败 (${response.status})`);
+  return response.json();
+}
