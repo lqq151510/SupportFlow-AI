@@ -17,8 +17,13 @@ public class ModelChatService {
     public ModelChatService(ChatModelGateway gateway, ObjectMapper json) { this.gateway = gateway; this.json = json; }
 
     public Flux<ModelStreamEvent> stream(Long tenantId, List<ChatMessage> messages) {
+        return stream(tenantId, messages, List.of());
+    }
+
+    public Flux<ModelStreamEvent> stream(Long tenantId, List<ChatMessage> messages, List<ModelTool> tools) {
         return gateway.stream(new ChatModelRequest(tenantId, messages.stream()
-                        .map(message -> new ChatModelRequest.ChatMessage(message.role(), message.content())).toList()))
+                        .map(message -> new ChatModelRequest.ChatMessage(message.role(), message.content())).toList(), tools.stream()
+                        .map(tool -> new ChatModelRequest.ToolDefinition(tool.name(), tool.description(), tool.inputSchema())).toList()))
                 .map(this::map).onErrorResume(exception -> Flux.just(new ModelStreamEvent("model.failed", "{\"code\":\"MODEL_UNAVAILABLE\"}")));
     }
 

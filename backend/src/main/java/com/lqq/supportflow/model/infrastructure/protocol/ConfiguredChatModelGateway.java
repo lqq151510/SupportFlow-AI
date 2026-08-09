@@ -41,7 +41,7 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
         return openAi.normalize(client.post().uri(path(config.baseUrl(), "chat/completions"))
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + secrets.decrypt(config.encryptedApiKey()))
                 .accept(MediaType.TEXT_EVENT_STREAM)
-                .bodyValue(Map.of("model", config.modelName(), "stream", true, "messages", messages(request.messages())))
+                .bodyValue(Map.of("model", config.modelName(), "stream", true, "messages", messages(request.messages()), "tools", openAiTools(request.tools())))
                 .retrieve().bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() { })
                 .map(ServerSentEvent::data).filter(data -> data != null));
     }
@@ -50,11 +50,13 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
         return anthropic.normalize(client.post().uri(path(config.baseUrl(), "v1/messages"))
                 .header("x-api-key", secrets.decrypt(config.encryptedApiKey())).header("anthropic-version", "2023-06-01")
                 .accept(MediaType.TEXT_EVENT_STREAM)
-                .bodyValue(Map.of("model", config.modelName(), "stream", true, "max_tokens", 1024, "messages", messages(request.messages())))
+                .bodyValue(Map.of("model", config.modelName(), "stream", true, "max_tokens", 1024, "messages", messages(request.messages()), "tools", anthropicTools(request.tools())))
                 .retrieve().bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() { })
                 .map(frame -> new AnthropicMessagesEventNormalizer.AnthropicSseFrame(frame.event(), frame.data())));
     }
 
     private List<Map<String, String>> messages(List<ChatModelRequest.ChatMessage> messages) { return messages.stream().map(message -> Map.of("role", message.role(), "content", message.content())).toList(); }
+    private List<Map<String, Object>> openAiTools(List<ChatModelRequest.ToolDefinition> tools) { return tools.stream().map(tool -> Map.<String, Object>of("type", "function", "function", Map.of("name", tool.name(), "description", tool.description(), "parameters", tool.inputSchema()))).toList(); }
+    private List<Map<String, Object>> anthropicTools(List<ChatModelRequest.ToolDefinition> tools) { return tools.stream().map(tool -> Map.<String, Object>of("name", tool.name(), "description", tool.description(), "input_schema", tool.inputSchema())).toList(); }
     private String path(String baseUrl, String suffix) { return (baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl) + "/" + suffix; }
 }
