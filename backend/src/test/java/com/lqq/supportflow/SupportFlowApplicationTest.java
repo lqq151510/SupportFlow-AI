@@ -332,6 +332,46 @@ class SupportFlowApplicationTest {
                 .andExpect(jsonPath("$.published").value(0));
     }
 
+    @Test
+    void handoffCreatesTicketThatAnAgentCanClaimCommentResolveAndClose() throws Exception {
+        registerTenant("ticket-shop", "admin@ticket.test");
+        registerCustomer("ticket-shop", "customer@ticket.test");
+        String customerToken = loginAccessToken("ticket-shop", "customer@ticket.test", "safe-password-123");
+        String adminToken = loginAccessToken("ticket-shop", "admin@ticket.test", "safe-password-123");
+        MvcResult conversation = mockMvc.perform(post("/api/v1/customer/conversations")
+                        .header("Authorization", "Bearer " + customerToken))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Number conversationId = JsonPath.read(conversation.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(post("/api/v1/customer/conversations/" + conversationId.longValue() + "/messages")
+                        .header("Authorization", "Bearer " + customerToken)
+                        .header("Idempotency-Key", "ticket-handoff-1")
+                        .contentType("application/json")
+                        .content("{\"content\":\"我要人工客服处理退款\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("HANDOFF_REQUIRED"));
+
+        MvcResult tickets = mockMvc.perform(get("/api/v1/admin/tickets")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("NEW"))
+                .andExpect(jsonPath("$[0].priority").value("NORMAL"))
+                .andReturn();
+        Number ticketId = JsonPath.read(tickets.getResponse().getContentAsString(), "$[0].id");
+        String ticketPath = "/api/v1/admin/tickets/" + ticketId.longValue();
+        mockMvc.perform(post(ticketPath + "/claim").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OPEN"));
+        mockMvc.perform(post(ticketPath + "/comments").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json").content("{\"content\":\"正在为您核实退款资格\"}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json").content("{\"status\":\"RESOLVED\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RESOLVED"));
+        mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json").content("{\"status\":\"CLOSED\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CLOSED"));
+    }
+
     private void registerTenant(String tenantCode, String email) throws Exception {
         String body = "{\"tenantCode\":\"" + tenantCode + "\",\"tenantName\":\"" + tenantCode
                 + "\",\"email\":\"" + email + "\",\"displayName\":\"Admin\",\"password\":\"safe-password-123\"}";
