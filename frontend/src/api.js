@@ -30,16 +30,15 @@ export async function getApprovals() {
   return response.json();
 }
 
-export async function decideApproval(approvalId, decision) {
+export async function decideApproval(approvalId, decision, idempotencyKey = crypto.randomUUID()) {
   const token = localStorage.getItem('supportflow.accessToken');
   if (!token) throw new Error('请先登录以处理审批');
-  const idempotencyKey = `approval-${approvalId}-${decision.toLowerCase()}-${crypto.randomUUID()}`;
   const response = await fetch(`${API_BASE_URL}/api/v1/admin/approvals/${approvalId}/decision`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      'Idempotency-Key': idempotencyKey,
+      'Idempotency-Key': `approval-${approvalId}-${decision.toLowerCase()}-${idempotencyKey}`,
     },
     body: JSON.stringify({ decision }),
   });

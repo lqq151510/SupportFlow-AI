@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {decideApproval, getApprovals, getOperationsOverview, getTickets} from './api.js';
 import {createRoot} from 'react-dom/client';
 import {LayoutDashboard, Ticket, Users, BookOpen, Workflow, BarChart3, Settings, Search, Bell, MessageSquare, ChevronDown, Plus, Upload, FileText, CheckCircle2, Clock3, AlertTriangle, ArrowRight, Bot, ShieldCheck, SlidersHorizontal, Send, ExternalLink, RefreshCcw, ClipboardList} from 'lucide-react';
@@ -38,6 +38,7 @@ function Approvals({setNotice}) {
   const [approvals, setApprovals] = useState([]);
   const [selectedApproval, setSelectedApproval] = useState(null);
   const [pending, setPending] = useState(false);
+  const idempotencyKeys = useRef(new Map());
   useEffect(() => {
     getApprovals().then(items => {
       setApprovals(items);
@@ -48,9 +49,13 @@ function Approvals({setNotice}) {
     if (!selectedApproval || selectedApproval.status !== 'PENDING' || pending) return;
     setPending(true);
     try {
-      const updated = await decideApproval(selectedApproval.id, decision);
+      const keyId = `${selectedApproval.id}:${decision}`;
+      const idempotencyKey = idempotencyKeys.current.get(keyId) || crypto.randomUUID();
+      idempotencyKeys.current.set(keyId, idempotencyKey);
+      const updated = await decideApproval(selectedApproval.id, decision, idempotencyKey);
       setApprovals(items => items.map(item => item.id === updated.id ? updated : item));
       setSelectedApproval(updated);
+      idempotencyKeys.current.delete(keyId);
       setNotice(decision === 'APPROVED' ? '审批已批准，已创建后续执行任务。' : '审批已拒绝。');
     } catch (error) {
       setNotice(error.message);
