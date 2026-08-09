@@ -1,6 +1,7 @@
 package com.lqq.supportflow.identity.infrastructure.security;
 
 import com.lqq.supportflow.identity.domain.AccessTokenVerifier;
+import com.lqq.supportflow.shared.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,14 +29,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String authorization = request.getHeader("Authorization");
+        try {
         if (authorization != null && authorization.startsWith(BEARER_PREFIX)) {
             verifier.verifyAccessToken(authorization.substring(BEARER_PREFIX.length()))
-                    .ifPresent(subject -> SecurityContextHolder.getContext().setAuthentication(
-                            new UsernamePasswordAuthenticationToken(
+                    .ifPresent(subject -> {
+                        TenantContext.set(subject);
+                        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                                     subject,
                                     null,
-                                    List.of(new SimpleGrantedAuthority("ROLE_" + subject.role())))));
+                                    List.of(new SimpleGrantedAuthority("ROLE_" + subject.role()))));
+                    });
         }
         filterChain.doFilter(request, response);
+        } finally {
+            TenantContext.clear();
+        }
     }
 }
