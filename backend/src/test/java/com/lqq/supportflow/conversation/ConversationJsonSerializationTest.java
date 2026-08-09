@@ -1,8 +1,10 @@
-package com.lqq.supportflow.conversation.domain;
+package com.lqq.supportflow.conversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lqq.supportflow.conversation.domain.Conversation;
+import com.lqq.supportflow.conversation.domain.ConversationStatus;
 import org.junit.jupiter.api.Test;
 
 class ConversationJsonSerializationTest {

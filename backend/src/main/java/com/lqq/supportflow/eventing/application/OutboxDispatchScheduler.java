@@ -1,6 +1,6 @@
 package com.lqq.supportflow.eventing.application;
 
-import com.lqq.supportflow.identity.domain.IdentityRegistrationPort;
+import com.lqq.supportflow.shared.ActiveTenantProvider;
 import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 import com.lqq.supportflow.shared.TenantContext;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class OutboxDispatchScheduler {
     private final DispatchOutboxService dispatch;
-    private final IdentityRegistrationPort tenants;
+    private final ActiveTenantProvider tenants;
 
-    public OutboxDispatchScheduler(DispatchOutboxService dispatch, IdentityRegistrationPort tenants) {
+    public OutboxDispatchScheduler(DispatchOutboxService dispatch, ActiveTenantProvider tenants) {
         this.dispatch = dispatch;
         this.tenants = tenants;
     }

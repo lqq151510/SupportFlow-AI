@@ -10,6 +10,7 @@ import com.lqq.supportflow.identity.domain.Role;
 import com.lqq.supportflow.identity.domain.TenantAdminRegistration;
 import com.lqq.supportflow.identity.domain.TenantAdminRegistrationResult;
 import com.lqq.supportflow.identity.domain.UserCredentialPort;
+import com.lqq.supportflow.shared.ActiveTenantProvider;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -17,7 +18,7 @@ import java.util.OptionalLong;
 import org.springframework.stereotype.Component;
 
 @Component
-public class MyBatisIdentityRegistrationAdapter implements IdentityRegistrationPort, MembershipManagementPort, UserCredentialPort {
+public class MyBatisIdentityRegistrationAdapter implements IdentityRegistrationPort, MembershipManagementPort, UserCredentialPort, ActiveTenantProvider {
     private final TenantMapper tenantMapper; private final UserMapper userMapper; private final TenantMembershipMapper membershipMapper;
     public MyBatisIdentityRegistrationAdapter(TenantMapper tenantMapper, UserMapper userMapper, TenantMembershipMapper membershipMapper) {
         this.tenantMapper = tenantMapper; this.userMapper = userMapper; this.membershipMapper = membershipMapper;

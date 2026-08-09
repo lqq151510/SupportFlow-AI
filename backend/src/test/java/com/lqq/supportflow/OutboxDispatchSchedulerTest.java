@@ -8,7 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.lqq.supportflow.eventing.application.DispatchOutboxService;
 import com.lqq.supportflow.eventing.application.OutboxDispatchScheduler;
-import com.lqq.supportflow.identity.domain.IdentityRegistrationPort;
+import com.lqq.supportflow.shared.ActiveTenantProvider;
 import com.lqq.supportflow.shared.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,7 +19,7 @@ class OutboxDispatchSchedulerTest {
     @Test
     void dispatchesEachTenantWithAnIsolatedContext() {
         DispatchOutboxService dispatch = mock(DispatchOutboxService.class);
-        IdentityRegistrationPort tenants = mock(IdentityRegistrationPort.class);
+        ActiveTenantProvider tenants = mock(ActiveTenantProvider.class);
         List<Long> dispatchedTenantIds = new ArrayList<>();
         when(tenants.findActiveTenantIds()).thenReturn(List.of(7L, 9L));
         doAnswer(ignored -> {

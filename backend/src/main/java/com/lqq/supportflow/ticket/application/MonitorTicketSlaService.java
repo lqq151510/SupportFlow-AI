@@ -3,7 +3,7 @@ package com.lqq.supportflow.ticket.application;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lqq.supportflow.eventing.OutboxService;
-import com.lqq.supportflow.identity.domain.IdentityRegistrationPort;
+import com.lqq.supportflow.shared.ActiveTenantProvider;
 import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 import com.lqq.supportflow.shared.TenantContext;
 import com.lqq.supportflow.ticket.SlaDeadline;
@@ -18,9 +18,9 @@ public class MonitorTicketSlaService {
     private final SlaMonitorPort monitor;
     private final OutboxService outbox;
     private final ObjectMapper json;
-    private final IdentityRegistrationPort tenants;
+    private final ActiveTenantProvider tenants;
 
-    public MonitorTicketSlaService(SlaMonitorPort monitor, OutboxService outbox, ObjectMapper json, IdentityRegistrationPort tenants) {
+    public MonitorTicketSlaService(SlaMonitorPort monitor, OutboxService outbox, ObjectMapper json, ActiveTenantProvider tenants) {
         this.monitor = monitor;
         this.outbox = outbox;
         this.json = json;

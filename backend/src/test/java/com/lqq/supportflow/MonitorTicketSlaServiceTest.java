@@ -9,7 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lqq.supportflow.eventing.OutboxService;
-import com.lqq.supportflow.identity.domain.IdentityRegistrationPort;
+import com.lqq.supportflow.shared.ActiveTenantProvider;
 import com.lqq.supportflow.shared.TenantContext;
 import com.lqq.supportflow.ticket.SlaDeadline;
 import com.lqq.supportflow.ticket.application.MonitorTicketSlaService;
@@ -23,7 +23,7 @@ class MonitorTicketSlaServiceTest {
     void emitsOneOutboxEventOnlyAfterRecordingAnAlert() {
         SlaMonitorPort monitor = mock(SlaMonitorPort.class);
         OutboxService outbox = mock(OutboxService.class);
-        IdentityRegistrationPort tenants = mock(IdentityRegistrationPort.class);
+        ActiveTenantProvider tenants = mock(ActiveTenantProvider.class);
         SlaDeadline deadline = new SlaDeadline(7L, 9L, "FIRST_RESPONSE", Instant.parse("2026-08-09T00:00:00Z"));
         when(tenants.findActiveTenantIds()).thenReturn(List.of(7L));
         when(monitor.dueAt(any())).thenReturn(List.of(deadline));
