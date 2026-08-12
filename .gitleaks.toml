@@ -10,9 +10,3 @@ regexes = [
   '''c3VwcG9ydGZsb3ctZG9ja2VyLWxvY2FsLWRldmVsb3BtZW50LWtleS0zMmJ5dGVzLQ==''',
   '''ticket-handoff-1''',
 ]
-
-[[allowlists]]
-description = "Superseded cipher test key in its original test-only commit"
-condition = "AND"
-commits = ["6db59c3cb4754b35517370c434b5a79ad6c7713c"]
-paths = ['''backend/src/test/java/com/lqq/supportflow/ModelSecurityTest\.java''']
