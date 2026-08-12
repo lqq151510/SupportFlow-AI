@@ -46,8 +46,8 @@ public class MonitorTicketSlaService {
     private String payload(SlaDeadline deadline) {
         try {
             return json.writeValueAsString(Map.of(
-                    "tenantId", deadline.tenantId(),
-                    "ticketId", deadline.ticketId(),
+                    "tenantId", deadline.tenantId().toString(),
+                    "ticketId", deadline.ticketId().toString(),
                     "type", deadline.type(),
                     "dueAt", deadline.dueAt().toString()));
         } catch (JsonProcessingException exception) {

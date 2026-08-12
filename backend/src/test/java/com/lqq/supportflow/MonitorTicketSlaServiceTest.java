@@ -32,7 +32,7 @@ class MonitorTicketSlaServiceTest {
         new MonitorTicketSlaService(monitor, outbox, new ObjectMapper(), tenants).monitor();
 
         verify(outbox).record(eq(7L), eq("ticket.sla.first_response"), eq("ticket"), eq("9"), argThat(payload ->
-                payload.contains("\"tenantId\":7") && payload.contains("\"ticketId\":9")
+                payload.contains("\"tenantId\":\"7\"") && payload.contains("\"ticketId\":\"9\"")
                         && payload.contains("\"type\":\"FIRST_RESPONSE\"")
                         && payload.contains("\"dueAt\":\"2026-08-09T00:00:00Z\"")));
         org.assertj.core.api.Assertions.assertThat(TenantContext.current()).isEmpty();

@@ -7,6 +7,8 @@ import com.lqq.supportflow.eventing.PublishedOutboxEvent;
 import com.lqq.supportflow.shared.TenantContext;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
+import com.lqq.supportflow.eventing.domain.OutboxEvent;
+import org.apache.rocketmq.common.message.Message;
 import org.junit.jupiter.api.Test;
 
 class RocketMqEnvelopeTest {
@@ -43,5 +45,19 @@ class RocketMqEnvelopeTest {
         assertThat(consumer.handle(unknown)).isFalse();
         assertThat(consumer.handle(malformed)).isFalse();
         assertThat(TenantContext.current()).isEmpty();
+    }
+
+    @Test
+    void assignsBrokerDeliveryTimeToFutureSlaEventsOnly() {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        RocketMqOutboxDeliveryGateway gateway = new RocketMqOutboxDeliveryGateway(json, "unused:9876", "events");
+        Instant dueAt = Instant.now().plusSeconds(300);
+        OutboxEvent event = new OutboxEvent(1L, 7L, "ticket.sla.first_response", "ticket", "11",
+                "{\"ticketId\":\"11\",\"dueAt\":\"" + dueAt + "\"}", 0, Instant.now());
+        Message message = new Message("events", new byte[0]);
+
+        gateway.applyDeliveryTime(message, event);
+
+        assertThat(message.getDeliverTimeMs()).isEqualTo(dueAt.toEpochMilli());
     }
 }
