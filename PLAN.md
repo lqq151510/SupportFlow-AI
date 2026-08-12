@@ -257,9 +257,9 @@ RocketMQ 延时消息负责到期提醒，但消费时必须重新读取工单�
 
 主题：
 
-- `support.domain.events`
-- `support.sla.delay`
-- `support.notifications`
+- `support-domain-events`
+- `support-sla-delay`
+- `support-notifications`
 - 对应的 `%DLQ%` 死信主题
 
 Outbox 发布失败采用指数退避，最多重试 8 次。消费者先写 `consumed_events` 唯一记录，再执行业务副作用；退款表和工具执行表同时使用业务幂等键，保证重复投递不会产生重复退款。

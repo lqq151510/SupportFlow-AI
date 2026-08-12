@@ -56,7 +56,9 @@ docker compose --profile app up --build
 
 启动后，前端为 http://localhost:5173，后端健康检查为 http://localhost:8080/actuator/health。容器前端会通过同源 `/api` 转发请求给后端，不依赖浏览器直连后端端口。若只需启动中间件，使用 `docker compose up -d`。
 
-账号、密码和 JWT 密钥仅适用于本地开发，禁止把真实生产密钥写入 `.env.example` 或提交到仓库；完整应用启动前需在 `.env` 中设置 `SUPPORTFLOW_JWT_SECRET_BASE64`。
+若本机已有服务占用 MinIO 默认端口，可在 `.env` 中设置 `MINIO_API_PORT` 和 `MINIO_CONSOLE_PORT`；该设置只改变宿主机映射，容器内应用仍通过 `minio:9000` 访问。`MINIO_IMAGE` 可在镜像下载受限时临时覆盖固定的 2025 tag；本机 Docker 验收使用了已缓存的 `RELEASE.2023-03-20T20-16-18Z`。Compose 会在 Broker 健康后显式创建 `support-domain-events`，后端仅在 Topic 初始化成功后启动。
+
+账号、密码和 JWT 密钥仅适用于本地开发，禁止把真实生产密钥写入 `.env.example` 或提交到仓库；完整应用启动前需在 `.env` 中设置 `SUPPORTFLOW_JWT_SECRET_BASE64` 和 `MODEL_SECRET_MASTER_KEY`，后者可用 `openssl rand -base64 32` 生成。
 
 ## 验证
 

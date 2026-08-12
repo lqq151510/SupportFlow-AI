@@ -1,6 +1,6 @@
 # RocketMQ 事件契约（v1）
 
-主题：`support.domain.events`。每条 Outbox 事件使用如下信封；`eventId` 为 Outbox 主键，消费者的幂等键是 `consumerName + eventId`。
+主题：`support-domain-events`。每条 Outbox 事件使用如下信封；`eventId` 为 Outbox 主键，消费者的幂等键是 `consumerName + eventId`。
 
 ```json
 {

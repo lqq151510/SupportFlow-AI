@@ -47,18 +47,18 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-minio-local-only}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -69,7 +69,7 @@ services:
     ports:
       - "9876:9876"
     healthcheck:
-      test: ["CMD-SHELL", "sh -c '</dev/tcp/127.0.0.1/9876'"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9876'"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -86,10 +86,23 @@ services:
     volumes:
       - ./infra/rocketmq/broker.conf:/home/rocketmq/rocketmq-5.3.2/conf/broker.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "sh -c '</dev/tcp/127.0.0.1/10911'"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/10911'"]
       interval: 10s
       timeout: 5s
       retries: 12
+
+  rocketmq-init:
+    image: apache/rocketmq:5.3.2
+    depends_on:
+      rocketmq-broker:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        result=$$(sh mqadmin updateTopic -n rocketmq-namesrv:9876 -b rocketmq-broker:10911 -t support-domain-events -r 4 -w 4)
+        echo "$$result"
+        echo "$$result" | grep -q "create topic to"
 
   backend:
     build:
@@ -97,6 +110,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SUPPORTFLOW_JWT_SECRET_BASE64: ${SUPPORTFLOW_JWT_SECRET_BASE64:-}
+      MODEL_SECRET_MASTER_KEY: ${MODEL_SECRET_MASTER_KEY:-}
     ports:
       - "8080:8080"
     depends_on:
@@ -110,6 +124,8 @@ services:
         condition: service_healthy
       rocketmq-broker:
         condition: service_healthy
+      rocketmq-init:
+        condition: service_completed_successfully
     profiles: [app]
 
   frontend:

@@ -39,7 +39,7 @@ supportflow:
     rocketmq:
       enabled: false
       nameserver: ${ROCKETMQ_NAMESERVER:localhost:9876}
-      topic: support.domain.events
+      topic: support-domain-events
       consumer-group: supportflow-event-consumer
       max-reconsume-times: 8
   ticket:
