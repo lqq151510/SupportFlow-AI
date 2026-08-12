@@ -74,7 +74,7 @@ paths:
     post:
       tags: [tickets]
       summary: 认领未分配工单
-      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      parameters: [{$ref: '#/components/parameters/TicketId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses: {'200': {description: 已认领, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}, '409': {$ref: '#/components/responses/Problem'}}
   /api/v1/admin/tickets/{ticketId}/status:
     post:

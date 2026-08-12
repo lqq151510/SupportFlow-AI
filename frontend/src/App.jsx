@@ -125,6 +125,7 @@ function Tickets({tickets:workspaceTickets,selected,setSelected,setWorkspaceTick
   const [comments,setComments] = useState([]);
   const [comment,setComment] = useState('');
   const [pending,setPending] = useState(false);
+  const claimKeys = useRef(new Map());
   useEffect(() => {
     if (!selected?.rawId) return;
     getTicketComments(selected.rawId).then(setComments).catch(error => setNotice(error.message));
@@ -165,11 +166,19 @@ function Tickets({tickets:workspaceTickets,selected,setSelected,setWorkspaceTick
   const canClaim = !selected.assignedMembershipId && selected.statusCode === 'NEW';
   const canResolve = selected.statusCode === 'OPEN' || selected.statusCode === 'PENDING_CUSTOMER' || selected.statusCode === 'PENDING_APPROVAL';
   const canClose = selected.statusCode === 'RESOLVED';
+  const claimSelected = ticketId => {
+    const key = claimKeys.current.get(ticketId) || crypto.randomUUID();
+    claimKeys.current.set(ticketId, key);
+    return claimTicket(ticketId, key).then(result => {
+      claimKeys.current.delete(ticketId);
+      return result;
+    });
+  };
   return <><PageHeader title="工单协同" sub={`我的工单 · ${workspaceTickets.length} 个待处理`}><Button icon={Plus} primary onClick={()=>setNotice('新建工单面板尚未接入。')}>新建工单</Button></PageHeader><div className="ticket-layout">
     <section className="panel ticket-list"><div className="tabs compact"><button className="selected">全部工单 <b>{workspaceTickets.length}</b></button><button>未分配</button><button>高优先级</button></div>{workspaceTickets.map(t=><button className={'ticket-item '+(selected.id===t.id?'selected':'')} key={t.id} onClick={()=>setSelected(t)}><div className="ticket-top"><strong>{t.id}</strong><span className={'priority '+(t.priority==='紧急'?'danger':'')}>{t.priority}</span></div><p>{t.title}</p><small>{t.customer} · {t.sla}</small></button>)}</section>
     <section className="panel conversation"><div className="conversation-head"><div><h2>{selected.title}</h2><span>{selected.id} · {selected.status} · 优先级 {selected.priority}</span></div><span className="sla-badge"><Clock3 size={15}/> {selected.sla}</span></div>
       <div className="conversation-body"><div className="message customer"><span className="message-avatar">客</span><div><small>{selected.customer}</small><p>该会话已转交人工坐席处理，请结合订单与知识库证据回复客户。</p></div></div>{comments.map(item=><div className="message note" key={item.id}><span className="message-avatar">内</span><div><small>坐席备注 · {formatDateTime(item.createdAt)}</small><p>{item.content}</p></div></div>)}{!comments.length&&<p className="empty-state">暂时没有内部备注。</p>}</div>
-      <div className="composer"><div className="composer-tabs"><button className="selected">内部备注</button><button className="ai-link" onClick={()=>setNotice('请在审核过知识库证据后编辑回复。')}><Bot size={15}/> 回复建议</button></div><textarea aria-label="内部备注" value={comment} onChange={event=>setComment(event.target.value)} placeholder="记录坐席处理信息…" disabled={pending}/><div className="composer-actions">{canClaim&&<Button primary onClick={()=>act(claimTicket,'工单已认领，现可继续处理。')}>{pending?'处理中…':'认领工单'}</Button>}<Button primary icon={Send} onClick={sendComment} disabled={pending}>{pending?'处理中…':'保存内部备注'}</Button>{canResolve&&<Button onClick={()=>act(ticketId=>changeTicketStatus(ticketId,'RESOLVED'),'工单已标记为已解决。')}>标记已解决</Button>}{canClose&&<Button onClick={()=>act(ticketId=>changeTicketStatus(ticketId,'CLOSED'),'工单已关闭。')}>关闭工单</Button>}</div></div>
+      <div className="composer"><div className="composer-tabs"><button className="selected">内部备注</button><button className="ai-link" onClick={()=>setNotice('请在审核过知识库证据后编辑回复。')}><Bot size={15}/> 回复建议</button></div><textarea aria-label="内部备注" value={comment} onChange={event=>setComment(event.target.value)} placeholder="记录坐席处理信息…" disabled={pending}/><div className="composer-actions">{canClaim&&<Button primary onClick={()=>act(claimSelected,'工单已认领，现可继续处理。')}>{pending?'处理中…':'认领工单'}</Button>}<Button primary icon={Send} onClick={sendComment} disabled={pending}>{pending?'处理中…':'保存内部备注'}</Button>{canResolve&&<Button onClick={()=>act(ticketId=>changeTicketStatus(ticketId,'RESOLVED'),'工单已标记为已解决。')}>标记已解决</Button>}{canClose&&<Button onClick={()=>act(ticketId=>changeTicketStatus(ticketId,'CLOSED'),'工单已关闭。')}>关闭工单</Button>}</div></div>
     </section>
     <aside className="panel context-panel"><h2>客户与订单</h2><div className="profile"><div className="profile-avatar">客</div><div><strong>{selected.customer}</strong><small>消费者服务工单</small></div></div><div className="context-block"><span>工单状态</span><strong>{selected.status}</strong><small>{selected.assignedMembershipId?'已分配给坐席':'等待坐席认领'}</small></div><h3>处理提示</h3><div className="evidence-line"><CheckCircle2/>先核对订单与知识库依据</div><div className="evidence-line"><CheckCircle2/>退款与补偿仍需走审批流程</div><Button icon={RefreshCcw} onClick={()=>getTicketComments(selected.rawId).then(setComments).then(()=>setNotice('内部备注已刷新。')).catch(error=>setNotice(error.message))}>刷新处理记录</Button></aside>
   </div></>;

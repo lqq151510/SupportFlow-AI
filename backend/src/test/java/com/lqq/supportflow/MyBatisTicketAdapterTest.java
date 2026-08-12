@@ -77,9 +77,24 @@ class MyBatisTicketAdapterTest {
                 .hasMessage("ticket was changed by another agent");
 
         when(mapper.selectOne(any())).thenReturn((TicketEntity) null);
-        assertThatThrownBy(() -> adapter.claim(7L, 10L, 22L))
+        assertThatThrownBy(() -> adapter.claim(7L, 10L, 22L, "claim-1"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("ticket does not belong to tenant");
+    }
+
+    @Test
+    void replaysTheSameClaimAndRejectsKeyReuseForAnotherTicket() {
+        TicketMapper mapper = mock(TicketMapper.class);
+        TicketEntity claimed = ticket(TicketStatus.OPEN);
+        claimed.assignedMembershipId = 22L;
+        claimed.claimIdempotencyKey = "claim-1";
+        when(mapper.selectOne(any())).thenReturn(claimed);
+        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper);
+
+        assertThat(adapter.claim(7L, 10L, 22L, "claim-1").assignedMembershipId()).isEqualTo(22L);
+        assertThatThrownBy(() -> adapter.claim(7L, 11L, 22L, "claim-1"))
+                .isInstanceOf(com.lqq.supportflow.shared.ConflictException.class)
+                .hasMessage("Idempotency-Key was already used for another ticket");
     }
 
     private void assertTransition(MyBatisTicketAdapter adapter, TicketEntity ticket, TicketStatus source, TicketStatus target) {

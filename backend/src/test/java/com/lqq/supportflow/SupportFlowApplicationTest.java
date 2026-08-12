@@ -339,6 +339,9 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
                         .contentType("application/json").content("{\"content\":\"Where is my order?\"}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.id").value(generationId));
+        mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-1")
+                        .contentType("application/json").content("{\"content\":\"Use the same key differently\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + token).header("Idempotency-Key", "message-2")
                         .contentType("application/json").content("{\"content\":\"我要人工客服处理退款\"}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("HANDOFF_REQUIRED"));
@@ -456,8 +459,12 @@ class SupportFlowApplicationTest {
                 .andReturn();
         String ticketId = JsonPath.read(tickets.getResponse().getContentAsString(), "$[0].id");
         String ticketPath = "/api/v1/admin/tickets/" + ticketId;
-        mockMvc.perform(post(ticketPath + "/claim").header("Authorization", "Bearer " + adminToken))
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post(ticketPath + "/claim")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .header("Idempotency-Key", "claim-ticket-1"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OPEN"));
+        }
         mockMvc.perform(post(ticketPath + "/comments").header("Authorization", "Bearer " + adminToken)
                         .contentType("application/json").content("{\"content\":\"正在为您核实退款资格\"}"))
                 .andExpect(status().isCreated());

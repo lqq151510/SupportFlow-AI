@@ -66,7 +66,9 @@ async function ticketRequest(ticketId, suffix, options = {}) {
   return response.json();
 }
 
-export const claimTicket = ticketId => ticketRequest(ticketId, '/claim', {method: 'POST'});
+export const claimTicket = (ticketId, idempotencyKey) => ticketRequest(ticketId, '/claim', {
+  method: 'POST', headers: {'Idempotency-Key': idempotencyKey},
+});
 export const changeTicketStatus = (ticketId, status) => ticketRequest(ticketId, '/status', {method: 'POST', body: JSON.stringify({status})});
 export const getTicketComments = ticketId => ticketRequest(ticketId, '/comments');
 export const addTicketComment = (ticketId, content) => ticketRequest(ticketId, '/comments', {method: 'POST', body: JSON.stringify({content})});

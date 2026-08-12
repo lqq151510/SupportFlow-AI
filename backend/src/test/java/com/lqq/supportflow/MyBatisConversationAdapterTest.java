@@ -42,6 +42,7 @@ class MyBatisConversationAdapterTest {
         GenerationMapper generations = mock(GenerationMapper.class);
         ConversationMessageEntity existing = new ConversationMessageEntity();
         existing.generationId = 20L;
+        existing.content = "hello";
         GenerationEntity generation = generation(20L, 10L, GenerationStatus.RUNNING);
         when(messages.selectOne(any())).thenReturn(existing);
         when(generations.selectById(20L)).thenReturn(generation);
@@ -49,7 +50,11 @@ class MyBatisConversationAdapterTest {
         when(conversations.exists(any())).thenReturn(true);
         MyBatisConversationAdapter adapter = adapter(conversations, messages, generations);
 
-        assertThat(adapter.submit(7L, 10L, "hello", "idem").status()).isEqualTo(GenerationStatus.RUNNING);
+        assertThat(adapter.submit(7L, 10L, "hello", "idem").generation().status()).isEqualTo(GenerationStatus.RUNNING);
+        assertThat(adapter.submit(7L, 10L, "hello", "idem").newlyCreated()).isFalse();
+        assertThatThrownBy(() -> adapter.submit(7L, 10L, "different", "idem"))
+                .isInstanceOf(com.lqq.supportflow.shared.ConflictException.class)
+                .hasMessage("Idempotency-Key was already used for a different message");
         assertThat(adapter.ownsGeneration(7L, 8L, 20L)).isTrue();
         assertThat(adapter.ownsGeneration(7L, 8L, 21L)).isFalse();
     }
@@ -63,7 +68,7 @@ class MyBatisConversationAdapterTest {
         when(generations.update(any(), any())).thenReturn(1);
         MyBatisConversationAdapter adapter = adapter(conversations, messages, generations);
 
-        assertThat(adapter.submit(7L, 10L, "hello", "idem").status()).isEqualTo(GenerationStatus.QUEUED);
+        assertThat(adapter.submit(7L, 10L, "hello", "idem").generation().status()).isEqualTo(GenerationStatus.QUEUED);
         assertThat(adapter.startGeneration(7L, 10L, 20L)).isTrue();
         assertThat(adapter.completeGeneration(7L, 10L, 20L, "answer", 5, 7, 23).status()).isEqualTo(GenerationStatus.COMPLETED);
         org.mockito.Mockito.verify(messages, org.mockito.Mockito.times(2)).insert(any(ConversationMessageEntity.class));

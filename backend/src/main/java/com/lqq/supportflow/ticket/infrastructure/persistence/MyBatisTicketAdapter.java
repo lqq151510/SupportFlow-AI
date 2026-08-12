@@ -6,6 +6,7 @@ import com.lqq.supportflow.ticket.domain.Ticket;
 import com.lqq.supportflow.ticket.domain.TicketPort;
 import com.lqq.supportflow.ticket.domain.TicketPriority;
 import com.lqq.supportflow.ticket.domain.TicketStatus;
+import com.lqq.supportflow.shared.ConflictException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -24,9 +25,32 @@ public class MyBatisTicketAdapter implements TicketPort {
         mapper.insert(entity); return ticket(entity);
     }
     @Override public List<Ticket> list(Long tenantId) { return mapper.selectList(new QueryWrapper<TicketEntity>().eq("tenant_id", tenantId).orderByAsc("first_response_due_at")).stream().map(this::ticket).toList(); }
-    @Override public Ticket claim(Long tenantId, Long ticketId, Long membershipId) { TicketEntity source = owned(tenantId, ticketId); int updated = mapper.update(new TicketEntity(), new UpdateWrapper<TicketEntity>().eq("id", ticketId).eq("tenant_id", tenantId).eq("version", source.version).isNull("assigned_membership_id").set("assigned_membership_id", membershipId).set("status", TicketStatus.OPEN.name()).set("updated_at", Instant.now()).setSql("version = version + 1")); if (updated != 1) throw new IllegalArgumentException("ticket has already been claimed"); return ticket(owned(tenantId, ticketId)); }
+    @Override public Ticket claim(Long tenantId, Long ticketId, Long membershipId, String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 128) {
+            throw new IllegalArgumentException("a valid Idempotency-Key is required");
+        }
+        TicketEntity replay = claimedWith(tenantId, membershipId, idempotencyKey);
+        if (replay != null) {
+            if (!ticketId.equals(replay.id)) throw new ConflictException("Idempotency-Key was already used for another ticket");
+            return ticket(replay);
+        }
+        TicketEntity source = owned(tenantId, ticketId);
+        int updated = mapper.update(new TicketEntity(), new UpdateWrapper<TicketEntity>()
+                .eq("id", ticketId).eq("tenant_id", tenantId).eq("version", source.version)
+                .isNull("assigned_membership_id")
+                .set("assigned_membership_id", membershipId).set("claim_idempotency_key", idempotencyKey)
+                .set("status", TicketStatus.OPEN.name()).set("updated_at", Instant.now())
+                .setSql("version = version + 1"));
+        if (updated != 1) {
+            replay = claimedWith(tenantId, membershipId, idempotencyKey);
+            if (replay != null && ticketId.equals(replay.id)) return ticket(replay);
+            throw new ConflictException("ticket has already been claimed");
+        }
+        return ticket(owned(tenantId, ticketId));
+    }
     @Override public Ticket changeStatus(Long tenantId, Long ticketId, TicketStatus target) { TicketEntity source = owned(tenantId, ticketId); TicketStatus current = TicketStatus.valueOf(source.status); if (!canTransition(current, target)) throw new IllegalArgumentException("invalid ticket status transition"); int updated = mapper.update(new TicketEntity(), new UpdateWrapper<TicketEntity>().eq("id", ticketId).eq("tenant_id", tenantId).eq("version", source.version).set("status", target.name()).set("updated_at", Instant.now()).setSql("version = version + 1")); if (updated != 1) throw new IllegalArgumentException("ticket was changed by another agent"); return ticket(owned(tenantId, ticketId)); }
     private TicketEntity owned(Long tenantId, Long ticketId) { TicketEntity entity = mapper.selectOne(new QueryWrapper<TicketEntity>().eq("id", ticketId).eq("tenant_id", tenantId)); if (entity == null) throw new IllegalArgumentException("ticket does not belong to tenant"); return entity; }
+    private TicketEntity claimedWith(Long tenantId, Long membershipId, String idempotencyKey) { return mapper.selectOne(new QueryWrapper<TicketEntity>().eq("tenant_id", tenantId).eq("assigned_membership_id", membershipId).eq("claim_idempotency_key", idempotencyKey)); }
     private Ticket ticket(TicketEntity entity) { return new Ticket(entity.id, entity.customerId, entity.title, TicketStatus.valueOf(entity.status), TicketPriority.valueOf(entity.priority), entity.assignedMembershipId, entity.firstResponseDueAt, entity.resolutionDueAt); }
     private boolean canTransition(TicketStatus current, TicketStatus target) { return switch (current) { case NEW -> target == TicketStatus.OPEN; case OPEN -> target == TicketStatus.PENDING_CUSTOMER || target == TicketStatus.PENDING_APPROVAL || target == TicketStatus.RESOLVED; case PENDING_CUSTOMER, PENDING_APPROVAL -> target == TicketStatus.OPEN || target == TicketStatus.RESOLVED; case RESOLVED -> target == TicketStatus.OPEN || target == TicketStatus.CLOSED; case CLOSED -> false; }; }
     private Duration firstResponse(TicketPriority priority) { return switch (priority) { case LOW -> Duration.ofHours(8); case NORMAL -> Duration.ofHours(4); case HIGH -> Duration.ofHours(1); case URGENT -> Duration.ofMinutes(15); }; }
