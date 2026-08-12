@@ -16,7 +16,7 @@ class KnowledgeJsonSerializationTest {
     void serializesKnowledgeSnowflakeIdentifiersAsStringsForJavascriptClients() throws Exception {
         long snowflakeId = 2_086_355_280_098_861_057L;
 
-        assertThat(json.writeValueAsString(new KnowledgeBase(snowflakeId, "Returns", "Policy", "ACTIVE")))
+        assertThat(json.writeValueAsString(new KnowledgeBase(snowflakeId, "Returns", "Policy", "ACTIVE", 1L)))
                 .contains("\"id\":\"2086355280098861057\"");
         assertThat(json.writeValueAsString(new KnowledgeDocument(snowflakeId, "returns.md", "hash", IngestionStatus.INDEXED)))
                 .contains("\"id\":\"2086355280098861057\"");

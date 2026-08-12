@@ -23,6 +23,8 @@ supportflow:
     elasticsearch:
       enabled: false
   knowledge:
+    search:
+      minimum-rrf-score: 0.015
     retrieval:
       minimum-score: 0.0
       minimum-citations: 1

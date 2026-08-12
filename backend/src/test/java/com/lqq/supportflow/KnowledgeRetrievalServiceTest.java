@@ -17,7 +17,7 @@ class KnowledgeRetrievalServiceTest {
     @Test
     void mergesOnlyTenantKnowledgeBaseResultsByScore() {
         KnowledgeBasePort bases = mock(KnowledgeBasePort.class); SearchKnowledgeBaseService search = mock(SearchKnowledgeBaseService.class);
-        when(bases.list(7L)).thenReturn(List.of(new KnowledgeBase(2L, "Returns", "", "ACTIVE")));
+        when(bases.list(7L)).thenReturn(List.of(new KnowledgeBase(2L, "Returns", "", "ACTIVE", 1L)));
         when(search.search(7L, 2L, "refund")).thenReturn(new KnowledgeSearchResult(3L, List.of(new KnowledgeCitation(4L, 5L, "30-day refund policy", 0.9, 1))));
         assertThat(new KnowledgeRetrievalService(bases, search, 0.5, 1).retrieve(7L, "refund")).singleElement().satisfies(citation -> { assertThat(citation.knowledgeBaseId()).isEqualTo(2L); assertThat(citation.content()).isEqualTo("30-day refund policy"); assertThat(citation.rank()).isEqualTo(1); });
     }
@@ -25,7 +25,7 @@ class KnowledgeRetrievalServiceTest {
     @Test
     void rejectsResultsBelowConfiguredEvidenceThreshold() {
         KnowledgeBasePort bases = mock(KnowledgeBasePort.class); SearchKnowledgeBaseService search = mock(SearchKnowledgeBaseService.class);
-        when(bases.list(7L)).thenReturn(List.of(new KnowledgeBase(2L, "Returns", "", "ACTIVE")));
+        when(bases.list(7L)).thenReturn(List.of(new KnowledgeBase(2L, "Returns", "", "ACTIVE", 1L)));
         when(search.search(7L, 2L, "refund")).thenReturn(new KnowledgeSearchResult(3L, List.of(new KnowledgeCitation(4L, 5L, "weak match", 0.4, 1))));
         assertThat(new KnowledgeRetrievalService(bases, search, 0.5, 1).retrieve(7L, "refund")).isEmpty();
     }

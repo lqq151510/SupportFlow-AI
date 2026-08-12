@@ -2,6 +2,8 @@
 
 企业级电商售后客服与工单协同平台。项目以模块化单体实现多租户隔离、RAG、可靠流式会话、工单 SLA 及人工审批的高风险动作闭环。
 
+RAG 的 50 条冻结评测集、质量门槛与适用边界见 [RAG 评测基线](docs/reports/rag-evaluation.md)。
+
 完整架构与阶段目标见 [PLAN.md](PLAN.md)，开发行为见 [AGENTS.md](AGENTS.md)。
 
 ## 当前基线
