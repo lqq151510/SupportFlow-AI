@@ -3,3 +3,28 @@ spring:
     url: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:supportflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
     username: ${MYSQL_USER:supportflow}
     password: ${MYSQL_PASSWORD:change-me-local-only}
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+supportflow:
+  storage:
+    minio:
+      enabled: true
+      endpoint: ${MINIO_ENDPOINT:http://minio:9000}
+      access-key: ${MINIO_ROOT_USER:minioadmin}
+      secret-key: ${MINIO_ROOT_PASSWORD:change-minio-local-only}
+      bucket: ${MINIO_BUCKET:supportflow-knowledge}
+  search:
+    elasticsearch:
+      enabled: true
+      endpoint: ${ELASTICSEARCH_ENDPOINT:http://elasticsearch:9200}
+      index: ${ELASTICSEARCH_INDEX:supportflow-knowledge}
+  generation:
+    redis:
+      enabled: true
+  eventing:
+    rocketmq:
+      enabled: true
+      nameserver: ${ROCKETMQ_NAMESERVER:rocketmq-namesrv:9876}
