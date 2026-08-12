@@ -24,6 +24,15 @@ class ModelSecurityTest {
         assertThatThrownBy(() -> validator.validate("https://127.0.0.1/v1")).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test void identifiesEveryExplicitHumanHandoffSignalWithoutCaseSensitivity() {
+        com.lqq.supportflow.conversation.domain.HandoffPolicy policy = new com.lqq.supportflow.conversation.domain.HandoffPolicy();
+
+        for (String signal : java.util.List.of("人工客服", "HUMAN agent", "投诉", "威胁", "refund request", "我要退款", "compensation", "申请补偿")) {
+            assertThat(policy.requiresHandoff(signal)).isTrue();
+        }
+        assertThat(policy.requiresHandoff("请查询订单物流")).isFalse();
+    }
+
     @Test void rejectsInvalidCiphertextAndMasterKeyMaterial() {
         ApiKeyCipher cipher = new ApiKeyCipher();
 
