@@ -20,7 +20,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest
+@SpringBootTest(properties = "supportflow.model.mock.enabled=true")
 @AutoConfigureMockMvc
 class SupportFlowApplicationTest {
 
@@ -318,7 +318,7 @@ class SupportFlowApplicationTest {
         String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId + "/documents/upload";
         MockMultipartFile file = new MockMultipartFile("file", "returns.md", "text/markdown", "# Returns\nItems can be returned within 30 days.".getBytes());
         mockMvc.perform(multipart(path).file(file).header("Authorization", "Bearer " + token))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING"));
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("INDEXED"));
         mockMvc.perform(multipart(path).file(file).header("Authorization", "Bearer " + token))
                 .andExpect(status().isConflict());
     }

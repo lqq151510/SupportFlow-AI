@@ -141,6 +141,18 @@ paths:
       parameters: [{$ref: '#/components/parameters/KnowledgeBaseId'}]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
       responses: {'201': {description: 已上传, content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgeDocument'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/retry:
+    post:
+      tags: [knowledge]
+      summary: 重试失败的知识文档摄取
+      parameters: [{$ref: '#/components/parameters/KnowledgeBaseId'}, {name: documentId, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: 重试结果, content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgeDocument'}}}}}
+  /api/v1/admin/knowledge-bases/{knowledgeBaseId}/documents/rebuild:
+    post:
+      tags: [knowledge]
+      summary: 重建当前租户知识库索引
+      parameters: [{$ref: '#/components/parameters/KnowledgeBaseId'}]
+      responses: {'200': {description: 重建结果}}
   /api/v1/admin/models:
     get:
       tags: [models]
