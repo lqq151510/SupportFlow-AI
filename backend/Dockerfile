@@ -1,9 +1,13 @@
 FROM maven:3.9.9-eclipse-temurin-21 AS build
 WORKDIR /workspace
-COPY pom.xml .
-RUN mvn -B -q dependency:go-offline
-COPY src src
-RUN mvn -B -q verify
+COPY pom.xml ./
+COPY src ./src
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    mvn -B -ntp \
+      -Daether.transport.http.connectTimeout=10000 \
+      -Daether.transport.http.requestTimeout=120000 \
+      -Daether.transport.http.retryHandler.count=3 \
+      verify
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
