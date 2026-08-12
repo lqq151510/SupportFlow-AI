@@ -78,4 +78,58 @@ class ExecuteApprovedActionServiceTest {
                 .hasMessage("unsupported approval event schema version");
         verify(consumers, never()).claim(7L, "approved-action-executor", 41L);
     }
+
+    @Test
+    void recordsCompensationResultsWithTheirOwnEventType() throws Exception {
+        ActionExecutionPort executions = mock(ActionExecutionPort.class);
+        EventConsumerService consumers = mock(EventConsumerService.class);
+        OutboxService outbox = mock(OutboxService.class);
+        String payload = PAYLOAD.replace("refund.request", "compensation.issue");
+        when(executions.executeOnce(7L, 91L, "compensation.issue", 1,
+                "approval:91:v1:execution:1")).thenReturn(true);
+        ExecuteApprovedActionService service = new ExecuteApprovedActionService(
+                executions, consumers, outbox, new ObjectMapper());
+
+        service.on(new PublishedOutboxEvent(41L, 7L, "approval.approved", payload));
+
+        verify(outbox).record(eq(7L), eq("compensation.executed"), eq("approval"),
+                eq("91"), anyString());
+        verify(consumers).claim(7L, "approved-action-executor", 41L);
+    }
+
+    @Test
+    void claimsAlreadyExecutedEventsWithoutPublishingDuplicateResults() throws Exception {
+        ActionExecutionPort executions = mock(ActionExecutionPort.class);
+        EventConsumerService consumers = mock(EventConsumerService.class);
+        OutboxService outbox = mock(OutboxService.class);
+        when(executions.executeOnce(7L, 91L, "refund.request", 1,
+                "approval:91:v1:execution:1")).thenReturn(false);
+        ExecuteApprovedActionService service = new ExecuteApprovedActionService(
+                executions, consumers, outbox, new ObjectMapper());
+
+        service.on(new PublishedOutboxEvent(41L, 7L, "approval.approved", PAYLOAD));
+
+        verify(outbox, never()).record(eq(7L), eq("refund.executed"), eq("approval"),
+                eq("91"), anyString());
+        verify(consumers).claim(7L, "approved-action-executor", 41L);
+    }
+
+    @Test
+    void rejectsUnsupportedApprovedActionsBeforeBusinessExecution() {
+        ActionExecutionPort executions = mock(ActionExecutionPort.class);
+        EventConsumerService consumers = mock(EventConsumerService.class);
+        OutboxService outbox = mock(OutboxService.class);
+        String payload = PAYLOAD.replace("refund.request", "account.delete");
+        ExecuteApprovedActionService service = new ExecuteApprovedActionService(
+                executions, consumers, outbox, new ObjectMapper());
+
+        assertThatThrownBy(() -> service.on(
+                new PublishedOutboxEvent(41L, 7L, "approval.approved", payload)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("unsupported approved action type");
+
+        verify(executions, never()).executeOnce(
+                7L, 91L, "account.delete", 1, "approval:91:v1:execution:1");
+        verify(consumers, never()).claim(7L, "approved-action-executor", 41L);
+    }
 }

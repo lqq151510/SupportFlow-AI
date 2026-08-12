@@ -9,18 +9,17 @@
 执行：
 
 ```zsh
-mvn -B -f backend/pom.xml clean test \
-  -Dtest='*Test,!InfrastructureContainerIntegrationTest,!ElasticsearchContainerIntegrationTest,!RocketMqContainerIntegrationTest'
+mvn -B -f backend/pom.xml clean verify
 ```
 
-- 测试：103
+- 测试：111
 - 失败：0
 - 错误：0
 - 跳过：0
 - Flyway：H2 与真实 MySQL 的 V1～V23 全部迁移成功
 - 架构：Spring Modulith 边界与 ArchUnit 规则通过
-- JaCoCo 行覆盖率：92.69%（1230/1327）
-- JaCoCo 分支覆盖率：73.03%（482/660）
+- JaCoCo 行覆盖率：93.49%（1264/1352），`verify` 门禁要求至少 85%
+- JaCoCo 分支覆盖率：75.08%（497/662），`verify` 门禁要求至少 75%
 - 结果：通过
 
 默认 profile 不启用 Redis Stream，因此关闭 Redis 健康指示器；Docker profile 显式重新启用。无 Redis 的默认启动下 `/actuator/health` 返回 `UP`，避免测试和 E2E 把未启用的外部依赖误判为应用故障。

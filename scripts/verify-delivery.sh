@@ -5,7 +5,7 @@ REPOSITORY_ROOT=${0:A:h:h}
 
 cd "$REPOSITORY_ROOT"
 git diff --check
-mvn -B -f backend/pom.xml test
+mvn -B -f backend/pom.xml verify
 npm --prefix frontend run test:unit
 npm --prefix frontend run build
 docker compose config --quiet
