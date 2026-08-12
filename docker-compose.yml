@@ -85,6 +85,11 @@ services:
       - "10911:10911"
     volumes:
       - ./infra/rocketmq/broker.conf:/home/rocketmq/rocketmq-5.3.2/conf/broker.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c '</dev/tcp/127.0.0.1/10911'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   backend:
     build:
@@ -98,6 +103,12 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rocketmq-broker:
         condition: service_healthy
     profiles: [app]
 
