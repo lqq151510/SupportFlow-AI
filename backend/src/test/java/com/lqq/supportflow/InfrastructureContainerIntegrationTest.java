@@ -48,9 +48,15 @@ class InfrastructureContainerIntegrationTest {
             events.appendIfAbsent(1L, 99L, "handoff.required", "{\"reason\":\"duplicate\"}");
             events.append(2L, 99L, "text.delta", "{\"text\":\"other tenant\"}");
 
-            assertThat(events.readAfter(1L, 99L, null))
+            var firstTenantEvents = events.readAfter(1L, 99L, null);
+            assertThat(firstTenantEvents)
                     .extracting(event -> event.type() + ":" + event.data())
                     .containsExactly("text.delta:{\"text\":\"first\"}", "handoff.required:{\"reason\":\"policy\"}");
+            assertThat(events.readAfter(1L, 99L, firstTenantEvents.getFirst().id()))
+                    .extracting(event -> event.type())
+                    .containsExactly("handoff.required");
+            assertThat(template.getExpire("supportflow:tenant:1:generation:99:events"))
+                    .isBetween(1L, Duration.ofMinutes(10).toSeconds());
             assertThat(events.readAfter(2L, 99L, null))
                     .extracting(event -> event.type() + ":" + event.data())
                     .containsExactly("text.delta:{\"text\":\"other tenant\"}");
