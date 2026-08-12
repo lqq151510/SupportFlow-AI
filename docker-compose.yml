@@ -112,6 +112,16 @@ services:
         condition: service_healthy
     profiles: [app]
 
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_started
+    profiles: [app]
+
 volumes:
   mysql-data:
   redis-data:
