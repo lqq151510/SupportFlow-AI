@@ -3,8 +3,11 @@ package com.lqq.supportflow.identity.api;
 import com.lqq.supportflow.identity.application.ChangeMemberStatusService;
 import com.lqq.supportflow.identity.application.CreateMemberService;
 import com.lqq.supportflow.shared.AuthenticatedPrincipal;
+import com.lqq.supportflow.shared.AssignableMemberProvider;
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -20,10 +23,20 @@ public class AdminMemberController {
 
     private final CreateMemberService createMembers;
     private final ChangeMemberStatusService changeStatus;
+    private final AssignableMemberProvider assignableMembers;
 
-    public AdminMemberController(CreateMemberService createMembers, ChangeMemberStatusService changeStatus) {
+    public AdminMemberController(CreateMemberService createMembers, ChangeMemberStatusService changeStatus,
+            AssignableMemberProvider assignableMembers) {
         this.createMembers = createMembers;
         this.changeStatus = changeStatus;
+        this.assignableMembers = assignableMembers;
+    }
+
+    @GetMapping
+    List<AssignableMemberResponse> list(@AuthenticationPrincipal AuthenticatedPrincipal principal) {
+        return assignableMembers.findAssignableMembers(principal.tenantId()).stream()
+                .map(member -> new AssignableMemberResponse(member.membershipId().toString(), member.displayName(), member.role()))
+                .toList();
     }
 
     @PostMapping
@@ -45,4 +58,5 @@ public class AdminMemberController {
     }
 
     record MemberResponse(Long userId, Long membershipId) { }
+    record AssignableMemberResponse(String membershipId, String displayName, String role) { }
 }

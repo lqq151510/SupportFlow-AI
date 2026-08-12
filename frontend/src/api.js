@@ -48,6 +48,7 @@ export const uploadKnowledgeDocument = (knowledgeBaseId, file) => {
 };
 
 export const getModelConfigs = () => adminRequest('/api/v1/admin/models', {}, '模型配置加载失败');
+export const getAssignableMembers = () => adminRequest('/api/v1/admin/members', {}, '坐席列表加载失败');
 export const createModelConfig = values => adminRequest('/api/v1/admin/models', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
 }, '模型配置保存失败');
@@ -68,6 +69,9 @@ async function ticketRequest(ticketId, suffix, options = {}) {
 
 export const claimTicket = (ticketId, idempotencyKey) => ticketRequest(ticketId, '/claim', {
   method: 'POST', headers: {'Idempotency-Key': idempotencyKey},
+});
+export const assignTicket = (ticketId, membershipId) => ticketRequest(ticketId, '/assign', {
+  method: 'POST', body: JSON.stringify({membershipId}),
 });
 export const changeTicketStatus = (ticketId, status) => ticketRequest(ticketId, '/status', {method: 'POST', body: JSON.stringify({status})});
 export const getTicketComments = ticketId => ticketRequest(ticketId, '/comments');

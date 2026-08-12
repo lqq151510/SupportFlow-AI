@@ -8,6 +8,7 @@ vi.mock('./api.js', async () => ({
   getSession: vi.fn().mockResolvedValue(null),
   getOperationsOverview: vi.fn().mockResolvedValue(null),
   getTickets: vi.fn().mockResolvedValue([]),
+  getAssignableMembers: vi.fn().mockResolvedValue([]),
   getKnowledgeBases: vi.fn().mockResolvedValue([]),
   getKnowledgeDocuments: vi.fn().mockResolvedValue([]),
   createKnowledgeBase: vi.fn(),

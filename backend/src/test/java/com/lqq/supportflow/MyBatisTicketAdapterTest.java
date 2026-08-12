@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.lqq.supportflow.ticket.domain.TicketPriority;
 import com.lqq.supportflow.ticket.domain.TicketStatus;
 import com.lqq.supportflow.ticket.infrastructure.persistence.MyBatisTicketAdapter;
+import com.lqq.supportflow.ticket.infrastructure.persistence.TicketAssignmentMapper;
 import com.lqq.supportflow.ticket.infrastructure.persistence.TicketEntity;
 import com.lqq.supportflow.ticket.infrastructure.persistence.TicketMapper;
 import java.util.EnumMap;
@@ -21,7 +22,7 @@ class MyBatisTicketAdapterTest {
     @Test
     void assignsTheExpectedSlaForEveryPriority() {
         TicketMapper mapper = mock(TicketMapper.class);
-        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper);
+        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper, mock(TicketAssignmentMapper.class));
         Map<TicketPriority, long[]> expectedMinutes = new EnumMap<>(TicketPriority.class);
         expectedMinutes.put(TicketPriority.LOW, new long[] {480, 4320});
         expectedMinutes.put(TicketPriority.NORMAL, new long[] {240, 2880});
@@ -47,7 +48,7 @@ class MyBatisTicketAdapterTest {
         TicketEntity ticket = ticket(TicketStatus.NEW);
         when(mapper.selectOne(any())).thenReturn(ticket);
         when(mapper.update(any(), any())).thenReturn(1);
-        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper);
+        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper, mock(TicketAssignmentMapper.class));
 
         assertTransition(adapter, ticket, TicketStatus.NEW, TicketStatus.OPEN);
         assertTransition(adapter, ticket, TicketStatus.OPEN, TicketStatus.PENDING_CUSTOMER);
@@ -64,7 +65,7 @@ class MyBatisTicketAdapterTest {
         TicketMapper mapper = mock(TicketMapper.class);
         TicketEntity ticket = ticket(TicketStatus.CLOSED);
         when(mapper.selectOne(any())).thenReturn(ticket);
-        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper);
+        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper, mock(TicketAssignmentMapper.class));
 
         assertThatThrownBy(() -> adapter.changeStatus(7L, 10L, TicketStatus.OPEN))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -89,7 +90,7 @@ class MyBatisTicketAdapterTest {
         claimed.assignedMembershipId = 22L;
         claimed.claimIdempotencyKey = "claim-1";
         when(mapper.selectOne(any())).thenReturn(claimed);
-        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper);
+        MyBatisTicketAdapter adapter = new MyBatisTicketAdapter(mapper, mock(TicketAssignmentMapper.class));
 
         assertThat(adapter.claim(7L, 10L, 22L, "claim-1").assignedMembershipId()).isEqualTo(22L);
         assertThatThrownBy(() -> adapter.claim(7L, 11L, 22L, "claim-1"))

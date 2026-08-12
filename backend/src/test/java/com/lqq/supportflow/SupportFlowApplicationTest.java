@@ -183,6 +183,9 @@ class SupportFlowApplicationTest {
                 .andExpect(jsonPath("$.membershipId").isNumber())
                 .andReturn();
         Number membershipId = JsonPath.read(memberResult.getResponse().getContentAsString(), "$.membershipId");
+        mockMvc.perform(get("/api/v1/admin/members").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.displayName == 'Support Agent' && @.role == 'AGENT')]").isNotEmpty());
         mockMvc.perform(post("/api/v1/auth/login").contentType("application/json")
                         .content("{\"tenantCode\":\"admin-shop\",\"email\":\"agent@members.test\",\"password\":\"safe-password-456\"}"))
                 .andExpect(status().isOk());
@@ -438,6 +441,17 @@ class SupportFlowApplicationTest {
         registerCustomer("ticket-shop", "customer@ticket.test");
         String customerToken = loginAccessToken("ticket-shop", "customer@ticket.test", "safe-password-123");
         String adminToken = loginAccessToken("ticket-shop", "admin@ticket.test", "safe-password-123");
+        MvcResult agent = mockMvc.perform(post("/api/v1/admin/members")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"email\":\"agent@ticket.test\",\"displayName\":\"Refund Agent\",\"password\":\"safe-password-456\",\"role\":\"AGENT\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String agentMembershipId = String.valueOf((Number) JsonPath.read(agent.getResponse().getContentAsString(), "$.membershipId"));
+        String agentToken = loginAccessToken("ticket-shop", "agent@ticket.test", "safe-password-456");
+        mockMvc.perform(get("/api/v1/admin/members").header("Authorization", "Bearer " + agentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.membershipId == '" + agentMembershipId + "')]").isNotEmpty());
         MvcResult conversation = mockMvc.perform(post("/api/v1/customer/conversations")
                         .header("Authorization", "Bearer " + customerToken))
                 .andExpect(status().isCreated())
@@ -465,13 +479,20 @@ class SupportFlowApplicationTest {
                             .header("Idempotency-Key", "claim-ticket-1"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OPEN"));
         }
-        mockMvc.perform(post(ticketPath + "/comments").header("Authorization", "Bearer " + adminToken)
+        mockMvc.perform(post(ticketPath + "/assign").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"membershipId\":\"" + agentMembershipId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignedMembershipId").value(agentMembershipId));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ticket_assignments WHERE ticket_id = ?", Integer.class,
+                Long.parseLong(ticketId))).isEqualTo(2);
+        mockMvc.perform(post(ticketPath + "/comments").header("Authorization", "Bearer " + agentToken)
                         .contentType("application/json").content("{\"content\":\"正在为您核实退款资格\"}"))
                 .andExpect(status().isCreated());
-        mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + adminToken)
+        mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + agentToken)
                         .contentType("application/json").content("{\"status\":\"RESOLVED\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RESOLVED"));
-        mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + adminToken)
+        mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + agentToken)
                         .contentType("application/json").content("{\"status\":\"CLOSED\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CLOSED"));
     }

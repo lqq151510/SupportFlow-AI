@@ -15,8 +15,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class MyBatisTicketAdapter implements TicketPort {
     private final TicketMapper mapper;
+    private final TicketAssignmentMapper assignments;
 
-    public MyBatisTicketAdapter(TicketMapper mapper) { this.mapper = mapper; }
+    public MyBatisTicketAdapter(TicketMapper mapper, TicketAssignmentMapper assignments) { this.mapper = mapper; this.assignments = assignments; }
 
     @Override public Ticket create(Long tenantId, Long customerId, Long conversationId, String title, TicketPriority priority) {
         Instant now = Instant.now(); TicketEntity entity = new TicketEntity();
@@ -46,11 +47,26 @@ public class MyBatisTicketAdapter implements TicketPort {
             if (replay != null && ticketId.equals(replay.id)) return ticket(replay);
             throw new ConflictException("ticket has already been claimed");
         }
+        recordAssignment(tenantId, ticketId, null, membershipId, membershipId);
+        return ticket(owned(tenantId, ticketId));
+    }
+    @Override public Ticket assign(Long tenantId, Long ticketId, Long targetMembershipId, Long assignedByMembershipId) {
+        TicketEntity source = owned(tenantId, ticketId);
+        if (TicketStatus.CLOSED.name().equals(source.status)) throw new IllegalArgumentException("closed ticket cannot be reassigned");
+        if (targetMembershipId.equals(source.assignedMembershipId)) return ticket(source);
+        int updated = mapper.update(new TicketEntity(), new UpdateWrapper<TicketEntity>()
+                .eq("id", ticketId).eq("tenant_id", tenantId).eq("version", source.version)
+                .set("assigned_membership_id", targetMembershipId)
+                .set("status", TicketStatus.NEW.name().equals(source.status) ? TicketStatus.OPEN.name() : source.status)
+                .set("claim_idempotency_key", null).set("updated_at", Instant.now()).setSql("version = version + 1"));
+        if (updated != 1) throw new ConflictException("ticket was changed by another agent");
+        recordAssignment(tenantId, ticketId, source.assignedMembershipId, targetMembershipId, assignedByMembershipId);
         return ticket(owned(tenantId, ticketId));
     }
     @Override public Ticket changeStatus(Long tenantId, Long ticketId, TicketStatus target) { TicketEntity source = owned(tenantId, ticketId); TicketStatus current = TicketStatus.valueOf(source.status); if (!canTransition(current, target)) throw new IllegalArgumentException("invalid ticket status transition"); int updated = mapper.update(new TicketEntity(), new UpdateWrapper<TicketEntity>().eq("id", ticketId).eq("tenant_id", tenantId).eq("version", source.version).set("status", target.name()).set("updated_at", Instant.now()).setSql("version = version + 1")); if (updated != 1) throw new IllegalArgumentException("ticket was changed by another agent"); return ticket(owned(tenantId, ticketId)); }
     private TicketEntity owned(Long tenantId, Long ticketId) { TicketEntity entity = mapper.selectOne(new QueryWrapper<TicketEntity>().eq("id", ticketId).eq("tenant_id", tenantId)); if (entity == null) throw new IllegalArgumentException("ticket does not belong to tenant"); return entity; }
     private TicketEntity claimedWith(Long tenantId, Long membershipId, String idempotencyKey) { return mapper.selectOne(new QueryWrapper<TicketEntity>().eq("tenant_id", tenantId).eq("assigned_membership_id", membershipId).eq("claim_idempotency_key", idempotencyKey)); }
+    private void recordAssignment(Long tenantId, Long ticketId, Long fromMembershipId, Long toMembershipId, Long actorMembershipId) { TicketAssignmentEntity audit = new TicketAssignmentEntity(); audit.tenantId = tenantId; audit.ticketId = ticketId; audit.fromMembershipId = fromMembershipId; audit.toMembershipId = toMembershipId; audit.assignedByMembershipId = actorMembershipId; audit.createdAt = Instant.now(); assignments.insert(audit); }
     private Ticket ticket(TicketEntity entity) { return new Ticket(entity.id, entity.customerId, entity.title, TicketStatus.valueOf(entity.status), TicketPriority.valueOf(entity.priority), entity.assignedMembershipId, entity.firstResponseDueAt, entity.resolutionDueAt); }
     private boolean canTransition(TicketStatus current, TicketStatus target) { return switch (current) { case NEW -> target == TicketStatus.OPEN; case OPEN -> target == TicketStatus.PENDING_CUSTOMER || target == TicketStatus.PENDING_APPROVAL || target == TicketStatus.RESOLVED; case PENDING_CUSTOMER, PENDING_APPROVAL -> target == TicketStatus.OPEN || target == TicketStatus.RESOLVED; case RESOLVED -> target == TicketStatus.OPEN || target == TicketStatus.CLOSED; case CLOSED -> false; }; }
     private Duration firstResponse(TicketPriority priority) { return switch (priority) { case LOW -> Duration.ofHours(8); case NORMAL -> Duration.ofHours(4); case HIGH -> Duration.ofHours(1); case URGENT -> Duration.ofMinutes(15); }; }

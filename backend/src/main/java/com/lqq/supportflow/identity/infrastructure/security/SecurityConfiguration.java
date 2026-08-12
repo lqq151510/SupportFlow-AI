@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -37,6 +38,8 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/tenants/register").permitAll()
                         .requestMatchers("/api/v1/customers/register").permitAll()
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/members").hasAnyRole("TENANT_ADMIN", "SUPERVISOR", "AGENT")
+                        .requestMatchers("/api/v1/admin/tickets/**").hasAnyRole("TENANT_ADMIN", "SUPERVISOR", "AGENT")
                         .requestMatchers("/api/v1/admin/**").hasRole("TENANT_ADMIN")
                         .requestMatchers("/api/v1/customer/**").hasRole("CUSTOMER")
                         .anyRequest().authenticated())

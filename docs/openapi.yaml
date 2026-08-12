@@ -42,6 +42,11 @@ paths:
       tags: [identity]
       summary: 当前会话身份
       responses: {'200': {description: 身份, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}, '401': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/members:
+    get:
+      tags: [identity]
+      summary: 查询当前租户可分配的管理员、主管与坐席
+      responses: {'200': {description: 可分配成员目录, content: {application/json: {schema: {type: array, items: {type: object, properties: {membershipId: {type: string}, displayName: {type: string}, role: {type: string}}}}}}}}
   /api/v1/customer/orders:
     get:
       tags: [customer]
@@ -76,6 +81,13 @@ paths:
       summary: 认领未分配工单
       parameters: [{$ref: '#/components/parameters/TicketId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses: {'200': {description: 已认领, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/tickets/{ticketId}/assign:
+    post:
+      tags: [tickets]
+      summary: 转派工单并记录分配审计
+      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [membershipId], properties: {membershipId: {type: string, pattern: '^[0-9]+$'}}}}}}
+      responses: {'200': {description: 已转派, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}, '400': {$ref: '#/components/responses/Problem'}, '409': {$ref: '#/components/responses/Problem'}}
   /api/v1/admin/tickets/{ticketId}/status:
     post:
       tags: [tickets]

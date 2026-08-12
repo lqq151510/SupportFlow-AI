@@ -11,6 +11,8 @@ import com.lqq.supportflow.identity.domain.TenantAdminRegistration;
 import com.lqq.supportflow.identity.domain.TenantAdminRegistrationResult;
 import com.lqq.supportflow.identity.domain.UserCredentialPort;
 import com.lqq.supportflow.shared.ActiveTenantProvider;
+import com.lqq.supportflow.shared.AssignableMember;
+import com.lqq.supportflow.shared.AssignableMemberProvider;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -18,7 +20,7 @@ import java.util.OptionalLong;
 import org.springframework.stereotype.Component;
 
 @Component
-public class MyBatisIdentityRegistrationAdapter implements IdentityRegistrationPort, MembershipManagementPort, UserCredentialPort, ActiveTenantProvider {
+public class MyBatisIdentityRegistrationAdapter implements IdentityRegistrationPort, MembershipManagementPort, UserCredentialPort, ActiveTenantProvider, AssignableMemberProvider {
     private final TenantMapper tenantMapper; private final UserMapper userMapper; private final TenantMembershipMapper membershipMapper;
     public MyBatisIdentityRegistrationAdapter(TenantMapper tenantMapper, UserMapper userMapper, TenantMembershipMapper membershipMapper) {
         this.tenantMapper = tenantMapper; this.userMapper = userMapper; this.membershipMapper = membershipMapper;
@@ -28,6 +30,26 @@ public class MyBatisIdentityRegistrationAdapter implements IdentityRegistrationP
     public List<Long> findActiveTenantIds() {
         return tenantMapper.selectList(new QueryWrapper<TenantEntity>().eq("status", "ACTIVE"))
                 .stream().map(tenant -> tenant.id).toList();
+    }
+    @Override
+    public List<AssignableMember> findAssignableMembers(Long tenantId) {
+        return membershipMapper.selectList(new QueryWrapper<TenantMembershipEntity>()
+                        .eq("tenant_id", tenantId).eq("status", "ACTIVE")
+                        .in("role", Role.TENANT_ADMIN.name(), Role.SUPERVISOR.name(), Role.AGENT.name()))
+                .stream()
+                .map(membership -> {
+                    UserEntity user = userMapper.selectById(membership.userId);
+                    return new AssignableMember(membership.id,
+                            user == null ? "未知成员" : user.displayName,
+                            membership.role);
+                })
+                .toList();
+    }
+    @Override
+    public boolean isAssignable(Long tenantId, Long membershipId) {
+        return membershipMapper.exists(new QueryWrapper<TenantMembershipEntity>()
+                .eq("id", membershipId).eq("tenant_id", tenantId).eq("status", "ACTIVE")
+                .in("role", Role.TENANT_ADMIN.name(), Role.SUPERVISOR.name(), Role.AGENT.name()));
     }
     public OptionalLong findActiveTenantIdByCode(String code) {
         TenantEntity tenant = tenantMapper.selectOne(new QueryWrapper<TenantEntity>().eq("code", code).eq("status", "ACTIVE"));
