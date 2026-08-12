@@ -511,7 +511,7 @@ SSE 事件固定为：
 
 ### 第 8 周：质量、压测和简历交付
 
-- 已验收：后端 111/111 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 93.49%，分支覆盖率 75.08%，并由 Maven `verify` 强制执行 85%/75% 门禁（2026-08-12）。
+- 已验收：后端 115/115 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 93.65%，分支覆盖率 75.38%，并由 Maven `verify` 强制执行 85%/75% 门禁（2026-08-12）。SLA 去重标记与 Outbox 原子提交，真实 RocketMQ 测试验证绝对截止时间前不投递、到期后送达。
 - 已验收：前端 Vitest 4/4、TypeScript/Vite 生产构建通过；Playwright 管理端与消费者到坐席闭环 2/2 通过，180.08 秒演示录屏场景通过。
 - 已验收：完整 Docker Compose 启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL 23 个 Flyway 迁移全部成功、RocketMQ Topic 路由可用。
 - 已验收：k6 Mock Model 场景完成 100 个并发 SSE 会话压测，建连 P95 为 46.11ms、错误率 0%。

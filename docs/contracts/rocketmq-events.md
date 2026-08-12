@@ -24,6 +24,6 @@
 | `ticket.sla.first_response` | `tenantId`、`ticketId`、`dueAt` | 重新读取工单，仅 `NEW` 且仍到期才提醒 |
 | `ticket.sla.resolution` | `tenantId`、`ticketId`、`dueAt` | 重新读取工单，已解决/关闭不提醒 |
 
-SLA 事件在工单创建事务中写入 Outbox；RocketMQ producer 使用 `dueAt` 设置绝对 `deliverTimeMs`，使首次响应和解决提醒在截止时间送达。数据库扫描任务只作为事务回滚或历史数据的补偿，不替代 Broker 延时投递。
+SLA 事件在工单创建事务中写入 Outbox；补偿扫描也把去重标记与 Outbox 事件放在同一事务，写入失败时回滚标记并在下一轮重试。RocketMQ producer 要求合法的 ISO-8601 `dueAt` 并设置绝对 `deliverTimeMs`，使首次响应和解决提醒在截止时间送达；缺少或非法的 `dueAt` 必须拒绝，不能退化为立即投递。数据库扫描任务只作为事务回滚或历史数据的补偿，不替代 Broker 延时投递。
 
 发送失败由 Outbox 指数退避（最多 8 次）；消费失败返回 `RECONSUME_LATER`，RocketMQ 最多重投 8 次后进入对应消费组的 `%DLQ%` 主题。消费者必须能处理至少一次投递和任意顺序的重复事件。兼容升级只能新增可选字段；删除字段、改变类型或语义时必须发布新 `schemaVersion` 和新 Schema 文件，并让消费者在显式支持后再切换生产者。

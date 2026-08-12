@@ -1,29 +1,23 @@
 package com.lqq.supportflow.ticket.application;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lqq.supportflow.eventing.OutboxService;
 import com.lqq.supportflow.shared.ActiveTenantProvider;
 import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 import com.lqq.supportflow.shared.TenantContext;
 import com.lqq.supportflow.ticket.SlaDeadline;
 import com.lqq.supportflow.ticket.domain.SlaMonitorPort;
 import java.time.Instant;
-import java.util.Map;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 @Service
 public class MonitorTicketSlaService {
     private final SlaMonitorPort monitor;
-    private final OutboxService outbox;
-    private final ObjectMapper json;
+    private final ScheduleTicketSlaAlertService slaAlerts;
     private final ActiveTenantProvider tenants;
 
-    public MonitorTicketSlaService(SlaMonitorPort monitor, OutboxService outbox, ObjectMapper json, ActiveTenantProvider tenants) {
+    public MonitorTicketSlaService(SlaMonitorPort monitor, ScheduleTicketSlaAlertService slaAlerts, ActiveTenantProvider tenants) {
         this.monitor = monitor;
-        this.outbox = outbox;
-        this.json = json;
+        this.slaAlerts = slaAlerts;
         this.tenants = tenants;
     }
 
@@ -33,25 +27,11 @@ public class MonitorTicketSlaService {
             TenantContext.set(new AuthenticatedPrincipal(0L, tenantId, 0L, "SYSTEM"));
             try {
                 for (SlaDeadline deadline : monitor.dueAt(Instant.now())) {
-                    if (monitor.markAlerted(deadline)) {
-                        outbox.record(deadline.tenantId(), "ticket.sla." + deadline.type().toLowerCase(), "ticket", deadline.ticketId().toString(), payload(deadline));
-                    }
+                    slaAlerts.schedule(deadline);
                 }
             } finally {
                 TenantContext.clear();
             }
-        }
-    }
-
-    private String payload(SlaDeadline deadline) {
-        try {
-            return json.writeValueAsString(Map.of(
-                    "tenantId", deadline.tenantId().toString(),
-                    "ticketId", deadline.ticketId().toString(),
-                    "type", deadline.type(),
-                    "dueAt", deadline.dueAt().toString()));
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("could not serialize SLA alert", exception);
         }
     }
 }

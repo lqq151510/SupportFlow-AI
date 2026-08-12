@@ -12,14 +12,14 @@
 mvn -B -f backend/pom.xml clean verify
 ```
 
-- 测试：111
+- 测试：115
 - 失败：0
 - 错误：0
 - 跳过：0
 - Flyway：H2 与真实 MySQL 的 V1～V23 全部迁移成功
 - 架构：Spring Modulith 边界与 ArchUnit 规则通过
-- JaCoCo 行覆盖率：93.49%（1264/1352），`verify` 门禁要求至少 85%
-- JaCoCo 分支覆盖率：75.08%（497/662），`verify` 门禁要求至少 75%
+- JaCoCo 行覆盖率：93.65%（1268/1354），`verify` 门禁要求至少 85%
+- JaCoCo 分支覆盖率：75.38%（499/662），`verify` 门禁要求至少 75%
 - 结果：通过
 
 默认 profile 不启用 Redis Stream，因此关闭 Redis 健康指示器；Docker profile 显式重新启用。无 Redis 的默认启动下 `/actuator/health` 返回 `UP`，避免测试和 E2E 把未启用的外部依赖误判为应用故障。
@@ -69,7 +69,7 @@ npm --prefix frontend run test:e2e -- customer-agent-handoff.spec.ts
 
 ## Docker 与真实中间件
 
-- Testcontainers：MySQL + Redis、Elasticsearch 8.17.3、RocketMQ 5.3.2 共 3/3 通过
+- Testcontainers：MySQL + Redis、Elasticsearch 8.17.3、RocketMQ 5.3.2 共 3/3 通过；RocketMQ 场景同时验证普通事件即时消费与 SLA 绝对截止时间延时投递
 - Compose：MySQL、Redis、Elasticsearch、MinIO、RocketMQ NameServer/Broker、后端与前端完整启动
 - 健康证据：后端 `UP`、前端 HTTP 200、Elasticsearch green、Redis PONG、MySQL 23 个迁移成功、RocketMQ `support-domain-events` 路由可见
 - 故障恢复：Redis 与 RocketMQ Broker 停机路径均确认并自动恢复，恢复后后端健康仍为 `UP`

@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
@@ -29,7 +30,7 @@ class RocketMqContainerIntegrationTest {
     private static final DockerImageName ROCKETMQ = DockerImageName.parse("apache/rocketmq:5.3.2");
 
     @Test
-    void publishesAndConsumesARealRocketMqEventWithTenantContext() throws Exception {
+    void publishesAndConsumesRealRocketMqEventsWithTenantContextAndDelay() throws Exception {
         int brokerPort = availablePort();
         String brokerConfig = """
                 brokerClusterName=DefaultCluster
@@ -71,13 +72,22 @@ class RocketMqContainerIntegrationTest {
             assertThat(topicCreation.getStdout()).as(topicCreation.getStderr()).contains("create topic to");
             awaitTopicRoute(nameserverAddress, topic);
             CountDownLatch consumed = new CountDownLatch(1);
+            CountDownLatch delayed = new CountDownLatch(1);
             AtomicReference<PublishedOutboxEvent> received = new AtomicReference<>();
             AtomicReference<Long> tenantDuringPublish = new AtomicReference<>();
+            AtomicReference<PublishedOutboxEvent> delayedEvent = new AtomicReference<>();
+            AtomicLong delayedAt = new AtomicLong();
             ApplicationEventPublisher publisher = event -> {
                 if (event instanceof PublishedOutboxEvent published) {
-                    received.set(published);
-                    tenantDuringPublish.set(TenantContext.current().orElseThrow().tenantId());
-                    consumed.countDown();
+                    if (published.eventType().startsWith("ticket.sla.")) {
+                        delayedEvent.set(published);
+                        delayedAt.set(System.currentTimeMillis());
+                        delayed.countDown();
+                    } else {
+                        received.set(published);
+                        tenantDuringPublish.set(TenantContext.current().orElseThrow().tenantId());
+                        consumed.countDown();
+                    }
                 }
             };
             ObjectMapper json = new ObjectMapper().findAndRegisterModules();
@@ -97,6 +107,18 @@ class RocketMqContainerIntegrationTest {
                         41L, 73L, "approval.approved", "{\"approved\":true}"));
                 assertThat(tenantDuringPublish.get()).isEqualTo(73L);
                 assertThat(TenantContext.current()).isEmpty();
+
+                Instant dueAt = Instant.now().plusSeconds(5);
+                producer.publish(new OutboxEvent(
+                        42L, 73L, "ticket.sla.resolution", "ticket", "92",
+                        "{\"ticketId\":\"92\",\"dueAt\":\"" + dueAt + "\"}", 0, Instant.now()));
+
+                assertThat(delayed.await(2, TimeUnit.SECONDS)).isFalse();
+                assertThat(delayed.await(20, TimeUnit.SECONDS)).isTrue();
+                assertThat(delayedEvent.get()).isEqualTo(new PublishedOutboxEvent(
+                        42L, 73L, "ticket.sla.resolution",
+                        "{\"ticketId\":\"92\",\"dueAt\":\"" + dueAt + "\"}"));
+                assertThat(delayedAt.get()).isGreaterThanOrEqualTo(dueAt.minusSeconds(1).toEpochMilli());
             } finally {
                 producer.stop();
                 consumer.stop();

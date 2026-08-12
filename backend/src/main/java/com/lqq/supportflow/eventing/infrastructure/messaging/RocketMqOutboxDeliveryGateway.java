@@ -18,7 +18,19 @@ public class RocketMqOutboxDeliveryGateway implements OutboxDeliveryGateway {
     public RocketMqOutboxDeliveryGateway(ObjectMapper json, @Value("${supportflow.eventing.rocketmq.nameserver}") String nameserver, @Value("${supportflow.eventing.rocketmq.topic}") String topic) { this.json = json; this.nameserver = nameserver; this.topic = topic; }
     @PostConstruct void start() { try { producer = new DefaultMQProducer("supportflow-outbox-producer"); producer.setNamesrvAddr(nameserver); producer.start(); } catch (Exception exception) { throw new IllegalStateException("RocketMQ producer failed to start", exception); } }
     @Override public void publish(OutboxEvent event) { try { Message message = new Message(topic, event.eventType().replace('.', '_'), event.tenantId() + ":" + event.id(), json.writeValueAsBytes(new RocketMqEnvelope(1, event.id().toString(), event.tenantId().toString(), event.eventType(), event.payload(), event.createdAt()))); message.putUserProperty("schemaVersion", "1"); applyDeliveryTime(message, event); producer.send(message); } catch (Exception exception) { throw new IllegalStateException("RocketMQ publish failed", exception); } }
-    void applyDeliveryTime(Message message, OutboxEvent event) { if (!event.eventType().startsWith("ticket.sla.")) return; try { long dueAt = json.readTree(event.payload()).path("dueAt").isTextual() ? java.time.Instant.parse(json.readTree(event.payload()).path("dueAt").asText()).toEpochMilli() : 0L; if (dueAt > System.currentTimeMillis()) message.setDeliverTimeMs(dueAt); } catch (Exception exception) { throw new IllegalArgumentException("SLA event dueAt is invalid", exception); } }
+    void applyDeliveryTime(Message message, OutboxEvent event) {
+        if (!event.eventType().startsWith("ticket.sla.")) return;
+        try {
+            var dueAtNode = json.readTree(event.payload()).path("dueAt");
+            if (!dueAtNode.isTextual() || dueAtNode.asText().isBlank()) {
+                throw new IllegalArgumentException("SLA event dueAt is required");
+            }
+            long dueAt = java.time.Instant.parse(dueAtNode.asText()).toEpochMilli();
+            if (dueAt > System.currentTimeMillis()) message.setDeliverTimeMs(dueAt);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("SLA event dueAt is invalid", exception);
+        }
+    }
     @PreDestroy void stop() { if (producer != null) producer.shutdown(); }
     public record RocketMqEnvelope(int schemaVersion, String eventId, String tenantId,
                                    String eventType, String payload, java.time.Instant occurredAt) { }

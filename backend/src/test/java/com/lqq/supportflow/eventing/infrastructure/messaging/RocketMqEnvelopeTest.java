@@ -1,6 +1,7 @@
 package com.lqq.supportflow.eventing.infrastructure.messaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lqq.supportflow.eventing.PublishedOutboxEvent;
@@ -59,5 +60,22 @@ class RocketMqEnvelopeTest {
         gateway.applyDeliveryTime(message, event);
 
         assertThat(message.getDeliverTimeMs()).isEqualTo(dueAt.toEpochMilli());
+    }
+
+    @Test
+    void rejectsSlaEventsWithoutAValidDeadline() {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        RocketMqOutboxDeliveryGateway gateway = new RocketMqOutboxDeliveryGateway(json, "unused:9876", "events");
+        Message message = new Message("events", new byte[0]);
+
+        assertThatThrownBy(() -> gateway.applyDeliveryTime(message, new OutboxEvent(
+                1L, 7L, "ticket.sla.resolution", "ticket", "11", "{}", 0, Instant.now())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("SLA event dueAt is invalid");
+        assertThatThrownBy(() -> gateway.applyDeliveryTime(message, new OutboxEvent(
+                2L, 7L, "ticket.sla.resolution", "ticket", "11",
+                "{\"dueAt\":\"not-an-instant\"}", 0, Instant.now())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("SLA event dueAt is invalid");
     }
 }
