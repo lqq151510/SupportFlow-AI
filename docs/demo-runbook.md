@@ -28,10 +28,19 @@ npm --prefix frontend run build
 SUPPORTFLOW_JWT_SECRET_BASE64='<at-least-32-byte-base64-secret>' docker compose --profile app config --quiet
 ```
 
-`InfrastructureContainerIntegrationTest` 会使用 Testcontainers 启动隔离的 MySQL 与 Redis，验证 SQL 连通性、Redis Stream 的租户隔离、游标重放、状态事件幂等和 TTL：
+容器集成测试会分别启动隔离的 MySQL、Redis、Elasticsearch 和 RocketMQ，验证 SQL 连通性、Redis Stream 隔离、真实检索与真实消息生产消费：
 
 ```zsh
-mvn -B -f backend/pom.xml -Dtest=InfrastructureContainerIntegrationTest test
+mvn -B -f backend/pom.xml \
+  -Dtest=InfrastructureContainerIntegrationTest,ElasticsearchContainerIntegrationTest,RocketMqContainerIntegrationTest test
 ```
 
-完整 k6 仍需要安装 `k6` 并向压测环境注入短期消费者令牌；执行方式见 `perf/k6/README.md`。它不能由 H2/mock 测试替代。
+可恢复的基础设施故障演练必须显式确认目标服务。例如验证 Redis 中断并自动恢复：
+
+```zsh
+SUPPORTFLOW_CONFIRM_FAULT_DRILL=yes ./scripts/fault-drill.sh redis
+```
+
+脚本只接受 `redis`、`elasticsearch` 和 `rocketmq-broker`，退出时会恢复被停止的服务。演练期间观察 SSE 降级、检索失败转人工或 Outbox 保持待投递，禁止在共享/生产环境运行。
+
+完整 k6 执行方式见 `perf/k6/README.md`；最新实测结果见 `docs/reports/performance.md`。H2 或 HTTP mock 不能替代真实容器验收。

@@ -58,9 +58,9 @@ docker compose --profile app up --build
 ## 验证
 
 ```bash
-mvn -B -f backend/pom.xml test
-cd frontend && npm run build
-docker compose config --quiet
+./scripts/verify-delivery.sh
 ```
+
+故障演练、压测和演示步骤见 [演示与故障验证手册](docs/demo-runbook.md)，最终简历表述见 [简历项目描述](docs/resume-project-description.md)。
 
 架构与接口说明见 [docs/architecture.md](docs/architecture.md)、[ER 图](docs/er-diagram.md)、[OpenAPI 3.1](docs/openapi.yaml)、[身份契约](docs/contracts/authentication.md)、[幂等契约](docs/contracts/idempotency.md) 和 [docs/adr](docs/adr)。
