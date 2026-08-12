@@ -14,10 +14,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
 @Component
+@ConditionalOnProperty(prefix = "supportflow.model.mock", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class ConfiguredChatModelGateway implements ChatModelGateway {
     private final ModelConfigPort configs;
     private final ModelSecretPort secrets;

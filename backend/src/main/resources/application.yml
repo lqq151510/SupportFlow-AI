@@ -13,6 +13,9 @@ spring:
       max-request-size: 20MB
 
 supportflow:
+  model:
+    mock:
+      enabled: false
   storage:
     minio:
       enabled: false

@@ -1,6 +1,14 @@
 # SSE 压测
 
-先通过消费者流程创建一个会话，随后在本机或 CI 中注入短期访问令牌：
+推荐运行项目提供的隔离脚本。它会启动默认关闭的 Mock Model、自动创建临时租户、知识库和消费者会话，随后执行普通 API 与 SSE 两组压测：
+
+```zsh
+./perf/run-load-tests.sh
+```
+
+结果写入 `docs/reports/k6-api-orders.json` 与 `docs/reports/k6-sse-chat.json`。临时 token 只保存在权限为 `600` 的临时目录中，并在脚本退出时删除。
+
+也可以使用已有的消费者会话手工运行 SSE 场景：
 
 ```zsh
 SUPPORTFLOW_BASE_URL=http://localhost:8080 \
