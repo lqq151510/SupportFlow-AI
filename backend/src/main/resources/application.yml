@@ -54,6 +54,9 @@ server:
   shutdown: graceful
 
 management:
+  health:
+    redis:
+      enabled: false
   endpoints:
     web:
       exposure:
