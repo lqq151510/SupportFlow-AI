@@ -20,6 +20,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+          cache-dependency-path: backend/pom.xml
       - run: mvn -B verify
 
   frontend:
@@ -30,6 +31,12 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -39,12 +46,21 @@ jobs:
       - run: npm run test:unit
       - run: npm run build
       - run: npm exec -- playwright install --with-deps chromium
-      - run: mvn -B -f ../backend/pom.xml spring-boot:run -Dspring-boot.run.arguments=--server.port=18080 > ../backend-e2e.log 2>&1 &
+      - name: Start backend
+        run: |
+          mvn -B -f ../backend/pom.xml spring-boot:run \
+            -Dspring-boot.run.arguments=--server.port=18080 > ../backend-e2e.log 2>&1 &
+          echo $! > ../backend-e2e.pid
       - name: Wait for backend
         run: |
+          backend_pid=$(cat ../backend-e2e.pid)
           for attempt in {1..30}; do
             if curl --fail --silent http://localhost:18080/actuator/health; then
               exit 0
+            fi
+            if ! kill -0 "$backend_pid" 2>/dev/null; then
+              cat ../backend-e2e.log
+              exit 1
             fi
             sleep 2
           done
@@ -55,6 +71,12 @@ jobs:
           SUPPORTFLOW_API_BASE_URL: http://localhost:18080
           VITE_API_BASE_URL: http://localhost:18080
           PLAYWRIGHT_BASE_URL: http://localhost:5173
+      - name: Stop backend
+        if: always()
+        run: |
+          if test -f ../backend-e2e.pid; then
+            kill "$(cat ../backend-e2e.pid)" 2>/dev/null || true
+          fi
 
   dependency-review:
     if: github.event_name == 'pull_request'
