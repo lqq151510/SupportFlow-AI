@@ -511,14 +511,14 @@ SSE 事件固定为：
 
 ### 第 8 周：质量、压测和简历交付
 
-- 已验收：后端非容器测试 81/81 通过；JaCoCo 行覆盖率 87.29%，分支覆盖率 73.71%（2026-08-12，单进程 `clean test`）。
-- 已验收：前端 Vitest 2/2、TypeScript/Vite 生产构建及 Playwright 消费者到坐席闭环 1/1 通过。
-- 已验收：Testcontainers 覆盖 MySQL、Redis 与 Elasticsearch；RocketMQ 真实容器测试留到 Docker 最终阶段完成，不能以 HTTP mock 替代。
+- 已验收：后端 103/103 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 92.69%，分支覆盖率 73.03%（2026-08-12）。
+- 已验收：前端 Vitest 4/4、TypeScript/Vite 生产构建通过；Playwright 管理端与消费者到坐席闭环 2/2 通过，180.08 秒演示录屏场景通过。
+- 已验收：完整 Docker Compose 启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL 23 个 Flyway 迁移全部成功、RocketMQ Topic 路由可用。
 - 已验收：k6 Mock Model 场景完成 100 个并发 SSE 会话压测，建连 P95 为 46.11ms、错误率 0%。
 - 已验收：非模型普通 API 在 100 RPS 下 P95 为 3.84ms、错误率 0%。
 - 已验收：Gitleaks 扫描 124 个提交无泄漏，npm 生产依赖审计 0 漏洞，Dependency Review 与 CodeQL 已接入 CI。
-- 已补齐 OpenAPI、架构图、ER 图、演示数据、测试/性能报告、故障演练脚本、简历项目描述和 185.12 秒演示录像。
-- 待最终 Docker 验收：RocketMQ Testcontainers、完整 Compose 启动与故障恢复；全部通过后创建 Git 标签 `v1.0.0-demo`。
+- 已补齐 OpenAPI、架构图、ER 图、演示数据、测试/性能报告、故障演练脚本、简历项目描述和 180.08 秒演示录像。
+- 已验收：Redis 与 RocketMQ Broker 故障演练均确认停机路径并自动恢复，恢复后后端健康仍为 `UP`；最终门禁通过后创建 Git 标签 `v1.0.0-demo`。
 
 ## 最终验收场景
 
@@ -557,21 +557,21 @@ SSE 事件固定为：
 
 ### 实施清单
 
-- [ ] 确认唯一的项目根目录与仓库名：计划中为 `SupportFlow-AI`，当前工作目录为 `SupportFlow AI`；在创建代码前统一命名、Git 仓库位置、包名 `com.lqq.supportflow` 与 Docker Compose 项目名，避免后续 CI、镜像和文档路径分叉。
-- [ ] 建立 `docs/adr/`，先冻结六条不可逆决策：模块化单体边界、认证上下文传播方式、租户隔离策略、生成任务/SSE 可靠投递、Outbox 事务一致性、AI 工具审批模型；每条 ADR 写明决策、替代方案、后果和回滚条件。
-- [ ] 按纵向切片而不是按技术层堆模块，启动第一个可演示闭环：租户注册 -> 消费者登录 -> 查看自己的模拟订单 -> 创建会话 -> Mock 流式回复。该切片暂不接入 RAG、真实模型、RocketMQ 和高风险动作，但必须已具备认证、`tenantId`、`requestId`、审计和错误协议。
-- [ ] 为所有写接口冻结统一幂等契约：请求头使用 `Idempotency-Key`；作用域为 `tenantId + actorId + operation + key`；持久化处理中、成功和失败结果及其有效期；明确重复请求、请求体不一致和并发提交分别返回的状态码。优先覆盖发消息、领取工单、审批和退款执行。
-- [ ] 在 `docs/contracts/` 维护 OpenAPI、SSE 事件样例和 RocketMQ 事件 JSON Schema。为 `generation.*`、`approval.approved`、`refund.executed` 等事件定义 `eventId`、版本号、顺序语义、重放行为和兼容策略，禁止消费者依赖未声明字段。
-- [ ] 将租户隔离转化为可测试不变量：任何业务查询均由认证上下文派生租户，不接受客户端 `tenantId`；MySQL、Elasticsearch、Redis 与 RocketMQ 分别列出隔离键和命名规则；增加跨租户读取、跨租户关联、缓存串租和消息误消费四类自动化反例测试。
-- [ ] 明确生成任务状态和恢复机制：定义 `QUEUED`、`RUNNING`、`COMPLETED`、`FAILED`、`HANDOFF_REQUIRED`；Redis Stream 仅保存短期事件，MySQL 保存最终事实；明确浏览器断线、模型中止、服务重启和 10 分钟 TTL 到期后的查询与重试行为。
-- [ ] 在 RAG 开发前补齐量化检索门槛：为证据不足设置可配置的最低 RRF 分数、最小有效引用数和知识库版本；评测集至少覆盖物流、退款资格、退货规则、恶意提示注入、空知识库和跨租户检索；未命中阈值必须转人工，不得自由回答。
-- [ ] 为高风险动作补全审批安全约束：审批页展示标准化动作摘要、金额、币种、订单、资格证据和操作人；批准后将审批版本、执行版本和业务幂等键写入 Outbox；过期、撤销、重复批准、MQ 重投和执行失败重试均须有明确状态迁移和审计记录。
-- [ ] 将每周验收升级为 CI 门禁：后端执行单元测试、ArchUnit、Flyway 迁移测试和 Testcontainers 集成测试；前端执行类型检查、组件测试和 Playwright 主流程；安全检查包含密钥泄漏扫描、日志脱敏断言与依赖漏洞检查；压测和覆盖率从中期逐步接入，不在第 8 周集中补齐。
-- [ ] 在第 4 周结束时安排架构中期门禁：现场演示两个租户隔离、文档摄取、带引用回答、断线重连和人工转接；任一项无法稳定复现时，暂停扩展坐席页面和运营大盘，优先修复数据与事件链路。
-- [ ] 将最终交付拆成独立验收材料：`README` 一键启动、`docs/architecture.md`、ER 图、OpenAPI、演示账号与种子数据、故障演练脚本、性能报告、测试报告、3～5 分钟演示录像和简历项目描述；仅在全部门禁通过后创建 `v1.0.0-demo` 标签。
+- [x] 确认唯一项目根目录为 `/Users/liuyongze/Documents/SupportFlow-AI`，统一包名 `com.lqq.supportflow` 与 Compose 项目名。
+- [x] 建立 `docs/adr/` 并冻结模块边界、认证与租户隔离、SSE、Outbox 和审批模型等关键决策。
+- [x] 按纵向切片完成租户注册、消费者登录、模拟订单、会话和 Mock 流式回复闭环。
+- [x] 为发消息、领取工单、审批和退款执行落实 `Idempotency-Key`、乐观锁与业务幂等约束。
+- [x] 在 `docs/contracts/` 维护 OpenAPI、SSE 与 RocketMQ 事件契约。
+- [x] 将 MySQL、Elasticsearch、Redis 与 RocketMQ 租户隔离转化为自动化反例测试。
+- [x] 明确生成状态、Redis Stream 短期事件、MySQL 最终事实及断线重放机制。
+- [x] 建立 RAG 阈值、评测集、引用持久化及证据不足转人工规则。
+- [x] 完成高风险审批摘要、版本、Outbox、幂等执行与审计约束。
+- [x] 建立后端、前端、容器、浏览器、安全、覆盖率与压测 CI/交付门禁。
+- [x] 完成架构中期门禁和跨租户、文档摄取、引用、重连、转人工验证。
+- [x] 补齐 README、架构/ER/OpenAPI、演示数据、故障脚本、测试/性能报告、演示录像和简历材料。
 
-### 开工前待确认
+### 已确认实施口径
 
-- 最终以哪个目录作为新仓库根目录：`/Users/liuyongze/Documents/SupportFlow-AI`，还是当前的 `/Users/liuyongze/Documents/SupportFlow AI`？
-- 第一个端到端演示闭环是否使用本地 Mock Model，以避免外部模型密钥和网络波动影响基础功能验收？
-- 演示数据是否采用固定退款/补偿金额规则，还是允许租户管理员在页面中配置？
+- 唯一仓库根目录为 `/Users/liuyongze/Documents/SupportFlow-AI`。
+- Docker 本地演示默认使用确定性 Mock Model；将 `SUPPORTFLOW_MODEL_MOCK_ENABLED=false` 后切换真实模型协议。
+- 演示数据采用固定退款/补偿规则，高风险动作始终进入人工审批。

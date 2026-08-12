@@ -2,7 +2,7 @@
 
 - 执行时间：2026-08-12
 - 环境：macOS arm64、Java 21.0.10、Spring Boot 3.5.14、Node.js 22
-- 范围：后端非容器测试、覆盖率、前端组件测试与构建、浏览器主流程、安全与交付材料
+- 范围：后端单元/架构/真实容器测试、覆盖率、前端组件测试与构建、浏览器主流程、完整 Compose、故障恢复、安全与交付材料
 
 ## 后端质量门禁
 
@@ -13,14 +13,14 @@ mvn -B -f backend/pom.xml clean test \
   -Dtest='*Test,!InfrastructureContainerIntegrationTest,!ElasticsearchContainerIntegrationTest,!RocketMqContainerIntegrationTest'
 ```
 
-- 测试：81
+- 测试：103
 - 失败：0
 - 错误：0
 - 跳过：0
-- Flyway：V1～V19 全部迁移成功
+- Flyway：H2 与真实 MySQL 的 V1～V23 全部迁移成功
 - 架构：Spring Modulith 边界与 ArchUnit 规则通过
-- JaCoCo 行覆盖率：87.29%（728/834）
-- JaCoCo 分支覆盖率：73.71%（370/502）
+- JaCoCo 行覆盖率：92.69%（1230/1327）
+- JaCoCo 分支覆盖率：73.03%（482/660）
 - 结果：通过
 
 默认 profile 不启用 Redis Stream，因此关闭 Redis 健康指示器；Docker profile 显式重新启用。无 Redis 的默认启动下 `/actuator/health` 返回 `UP`，避免测试和 E2E 把未启用的外部依赖误判为应用故障。
@@ -32,10 +32,10 @@ npm --prefix frontend run test:unit
 npm --prefix frontend run build
 ```
 
-- Vitest：1 个测试文件、2 个测试，全部通过
+- Vitest：1 个测试文件、4 个测试，全部通过
 - TypeScript：通过
-- Vite：1792 个模块构建成功
-- 主 JavaScript 产物：236.20 kB，gzip 73.58 kB
+- Vite：1795 个模块构建成功
+- 主 JavaScript 产物：242.14 kB，gzip 74.99 kB
 - 结果：通过
 
 ## 浏览器端到端
@@ -50,10 +50,10 @@ npm --prefix frontend run test:e2e -- customer-agent-handoff.spec.ts
 ```
 
 - 场景：消费者注册与登录 -> 提交人工请求 -> 自动转人工 -> 坐席登录 -> 领取 -> 内部备注 -> 解决 -> 关闭
-- Playwright：1/1 通过，测试执行约 9.1 秒
+- Playwright：管理端知识库/模型配置与消费者到坐席闭环 2/2 通过；录屏场景独立通过
 - 演示录像：[supportflow-demo.webm](../demo/supportflow-demo.webm)
-- 录像时长：185.12 秒（约 3 分 05 秒）
-- 录像大小：9,541,272 字节
+- 录像时长：180.08 秒（约 3 分钟）
+- 录像大小：9,887,967 字节
 - 结果：通过
 
 ## 安全与供应链
@@ -70,9 +70,11 @@ npm --prefix frontend run test:e2e -- customer-agent-handoff.spec.ts
 
 ## Docker 与真实中间件
 
-- MySQL、Redis Testcontainers：已通过历史验收
-- Elasticsearch 8.17.3 Testcontainers：1/1 通过，覆盖写入、关键词检索、向量检索和跨租户过滤
-- RocketMQ 5.3.2 Testcontainers：留到 Docker 最终阶段执行
-- Docker Compose 整栈、Redis 故障演练：留到 Docker 最终阶段执行
+- Testcontainers：MySQL + Redis、Elasticsearch 8.17.3、RocketMQ 5.3.2 共 3/3 通过
+- Compose：MySQL、Redis、Elasticsearch、MinIO、RocketMQ NameServer/Broker、后端与前端完整启动
+- 健康证据：后端 `UP`、前端 HTTP 200、Elasticsearch green、Redis PONG、MySQL 23 个迁移成功、RocketMQ `support-domain-events` 路由可见
+- 故障恢复：Redis 与 RocketMQ Broker 停机路径均确认并自动恢复，恢复后后端健康仍为 `UP`
+- 构建性能：后端首次冷构建约 9 分 32 秒；启用 BuildKit Maven 缓存后，无源码变化的二次构建约 1 秒，单次源码增量构建并执行 102 个镜像内测试约 32 秒
+- 本机 MinIO 验收因 9000/9001 端口占用，使用 19000/19001 映射和已缓存的 `RELEASE.2023-03-20T20-16-18Z`；Compose 默认仍固定 2025 tag，并允许 `MINIO_IMAGE` 覆盖
 
-本报告在 Docker 最终验收完成后会补充组合测试、Compose 服务健康状态和故障恢复结果；在此之前不创建 `v1.0.0-demo` 标签。
+Docker 最终阶段已通过，可以创建 `v1.0.0-demo` 标签。
