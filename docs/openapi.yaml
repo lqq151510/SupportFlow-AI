@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: SupportFlow AI API
+  version: 1.0.0-demo
+  description: |
+    多租户电商售后支持平台。受保护接口从 JWT 推导 tenantId，不接受客户端传入的 tenantId。
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/tenants/register:
+    post:
+      tags: [identity]
+      security: []
+      summary: 注册租户管理员
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TenantRegistrationRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/RegistrationResponse'}}}}, '400': {$ref: '#/components/responses/Problem'}}
+  /api/v1/customers/register:
+    post:
+      tags: [identity]
+      security: []
+      summary: 注册消费者
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerRegistrationRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/RegistrationResponse'}}}}, '400': {$ref: '#/components/responses/Problem'}}
+  /api/v1/auth/login:
+    post:
+      tags: [identity]
+      security: []
+      summary: 登录并获得令牌
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}}}}
+      responses: {'200': {description: 令牌对, content: {application/json: {schema: {$ref: '#/components/schemas/TokenPair'}}}}, '401': {$ref: '#/components/responses/Problem'}}
+  /api/v1/auth/refresh:
+    post:
+      tags: [identity]
+      security: []
+      summary: 轮换刷新令牌
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RefreshTokenRequest'}}}}
+      responses: {'200': {description: 新令牌对, content: {application/json: {schema: {$ref: '#/components/schemas/TokenPair'}}}}}
+  /api/v1/auth/session:
+    get:
+      tags: [identity]
+      summary: 当前会话身份
+      responses: {'200': {description: 身份, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}, '401': {$ref: '#/components/responses/Problem'}}
+  /api/v1/customer/orders:
+    get:
+      tags: [customer]
+      summary: 当前消费者订单
+      responses: {'200': {description: 订单列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/CustomerOrder'}}}}}}
+  /api/v1/customer/conversations:
+    post:
+      tags: [conversation]
+      summary: 创建会话
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/Conversation'}}}}}
+  /api/v1/customer/conversations/{conversationId}/messages:
+    post:
+      tags: [conversation]
+      summary: 提交消费者消息并创建生成任务
+      parameters: [{$ref: '#/components/parameters/ConversationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SubmitMessageRequest'}}}}
+      responses: {'202': {description: 已受理, content: {application/json: {schema: {$ref: '#/components/schemas/Generation'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/customer/generations/{generationId}/events:
+    get:
+      tags: [conversation]
+      summary: 读取并重放生成 SSE 事件
+      parameters: [{$ref: '#/components/parameters/GenerationId'}, {name: Last-Event-ID, in: header, schema: {type: string}}]
+      responses: {'200': {description: SSE 事件流, content: {text/event-stream: {schema: {type: string}, example: "id: 1730000000000-0\nevent: text.delta\ndata: {\"text\":\"您好\"}\n\n"}}}}
+  /api/v1/admin/tickets:
+    get:
+      tags: [tickets]
+      summary: 当前租户工单队列
+      responses: {'200': {description: 工单列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Ticket'}}}}}}
+  /api/v1/admin/tickets/{ticketId}/claim:
+    post:
+      tags: [tickets]
+      summary: 认领未分配工单
+      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      responses: {'200': {description: 已认领, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/tickets/{ticketId}/status:
+    post:
+      tags: [tickets]
+      summary: 按状态机变更工单状态
+      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ChangeTicketStatusRequest'}}}}
+      responses: {'200': {description: 已变更, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/tickets/{ticketId}/comments:
+    get:
+      tags: [tickets]
+      summary: 查询内部备注
+      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      responses: {'200': {description: 备注列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/TicketComment'}}}}}}
+    post:
+      tags: [tickets]
+      summary: 添加内部备注
+      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TicketCommentRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/TicketComment'}}}}}
+  /api/v1/admin/approvals:
+    get:
+      tags: [approvals]
+      summary: 查询审批申请
+      responses: {'200': {description: 审批列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Approval'}}}}}}
+  /api/v1/admin/approvals/{approvalId}/decision:
+    post:
+      tags: [approvals]
+      summary: 审批高风险动作
+      parameters: [{name: approvalId, in: path, required: true, schema: {type: string}}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [decision], properties: {decision: {type: string, enum: [APPROVED, REJECTED]}}}}}}
+      responses: {'200': {description: 审批结果, content: {application/json: {schema: {$ref: '#/components/schemas/Approval'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    ConversationId: {name: conversationId, in: path, required: true, schema: {type: string}}
+    GenerationId: {name: generationId, in: path, required: true, schema: {type: string}}
+    TicketId: {name: ticketId, in: path, required: true, schema: {type: string}}
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1}}
+  responses:
+    Problem: {description: RFC 9457 problem response, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+  schemas:
+    TenantRegistrationRequest: {type: object, required: [tenantCode, tenantName, email, displayName, password], properties: {tenantCode: {type: string}, tenantName: {type: string}, email: {type: string, format: email}, displayName: {type: string}, password: {type: string, minLength: 12}}}
+    CustomerRegistrationRequest: {type: object, required: [tenantCode, email, displayName, password], properties: {tenantCode: {type: string}, email: {type: string, format: email}, displayName: {type: string}, password: {type: string, minLength: 12}}}
+    RegistrationResponse: {type: object, properties: {tenantId: {type: string}, userId: {type: string}, membershipId: {type: string}}}
+    LoginRequest: {type: object, required: [tenantCode, email, password], properties: {tenantCode: {type: string}, email: {type: string, format: email}, password: {type: string}}}
+    RefreshTokenRequest: {type: object, required: [refreshToken], properties: {refreshToken: {type: string}}}
+    TokenPair: {type: object, required: [accessToken, refreshToken], properties: {accessToken: {type: string}, refreshToken: {type: string}}}
+    Session: {type: object, properties: {userId: {type: string}, tenantId: {type: string}, membershipId: {type: string}, role: {type: string}}}
+    CustomerOrder: {type: object, properties: {orderNo: {type: string}, status: {type: string}, totalAmount: {type: number}, currency: {type: string}, createdAt: {type: string, format: date-time}}}
+    Conversation: {type: object, properties: {id: {type: string}, status: {type: string}, createdAt: {type: string, format: date-time}}}
+    SubmitMessageRequest: {type: object, required: [content], properties: {content: {type: string, minLength: 1}}}
+    Generation: {type: object, properties: {id: {type: string}, conversationId: {type: string}, status: {type: string}, createdAt: {type: string, format: date-time}}}
+    Ticket: {type: object, properties: {id: {type: string}, customerId: {type: string}, title: {type: string}, status: {type: string, enum: [NEW, OPEN, PENDING_CUSTOMER, PENDING_APPROVAL, RESOLVED, CLOSED]}, priority: {type: string, enum: [LOW, NORMAL, HIGH, URGENT]}, assignedMembershipId: {type: string}, resolutionDueAt: {type: string, format: date-time}}}
+    ChangeTicketStatusRequest: {type: object, required: [status], properties: {status: {type: string, enum: [OPEN, PENDING_CUSTOMER, PENDING_APPROVAL, RESOLVED, CLOSED]}}}
+    TicketCommentRequest: {type: object, required: [content], properties: {content: {type: string, minLength: 1}}}
+    TicketComment: {type: object, properties: {id: {type: string}, ticketId: {type: string}, content: {type: string}, createdAt: {type: string, format: date-time}}}
+    Approval: {type: object, properties: {id: {type: string}, status: {type: string}, actionType: {type: string}, actionSummary: {type: string}}}
+    Problem: {type: object, properties: {type: {type: string, format: uri}, title: {type: string}, status: {type: integer}, detail: {type: string}, code: {type: string}, requestId: {type: string}}}
