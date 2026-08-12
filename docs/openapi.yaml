@@ -107,6 +107,45 @@ paths:
       parameters: [{name: approvalId, in: path, required: true, schema: {type: string}}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [decision], properties: {decision: {type: string, enum: [APPROVED, REJECTED]}}}}}}
       responses: {'200': {description: 审批结果, content: {application/json: {schema: {$ref: '#/components/schemas/Approval'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/knowledge-bases:
+    get:
+      tags: [knowledge]
+      summary: 查询当前租户知识库
+      responses: {'200': {description: 知识库列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/KnowledgeBase'}}}}}}
+    post:
+      tags: [knowledge]
+      summary: 创建知识库
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateKnowledgeBaseRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgeBase'}}}}}
+  /api/v1/admin/knowledge-bases/{knowledgeBaseId}/documents:
+    get:
+      tags: [knowledge]
+      summary: 查询知识库文档
+      parameters: [{$ref: '#/components/parameters/KnowledgeBaseId'}]
+      responses: {'200': {description: 文档列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/KnowledgeDocument'}}}}}}
+  /api/v1/admin/knowledge-bases/{knowledgeBaseId}/documents/upload:
+    post:
+      tags: [knowledge]
+      summary: 上传并摄取知识文档
+      parameters: [{$ref: '#/components/parameters/KnowledgeBaseId'}]
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
+      responses: {'201': {description: 已上传, content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgeDocument'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/models:
+    get:
+      tags: [models]
+      summary: 查询当前租户模型配置
+      responses: {'200': {description: 模型配置列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ModelConfig'}}}}}}
+    post:
+      tags: [models]
+      summary: 创建模型配置
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateModelConfigRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/ModelConfig'}}}}}
+  /api/v1/admin/models/probe:
+    post:
+      tags: [models]
+      summary: 探测模型服务连通性
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ModelProbeRequest'}}}}
+      responses: {'200': {description: 探测结果}}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -114,6 +153,7 @@ components:
     ConversationId: {name: conversationId, in: path, required: true, schema: {type: string}}
     GenerationId: {name: generationId, in: path, required: true, schema: {type: string}}
     TicketId: {name: ticketId, in: path, required: true, schema: {type: string}}
+    KnowledgeBaseId: {name: knowledgeBaseId, in: path, required: true, schema: {type: string}}
     IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1}}
   responses:
     Problem: {description: RFC 9457 problem response, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
@@ -134,4 +174,10 @@ components:
     TicketCommentRequest: {type: object, required: [content], properties: {content: {type: string, minLength: 1}}}
     TicketComment: {type: object, properties: {id: {type: string}, ticketId: {type: string}, content: {type: string}, createdAt: {type: string, format: date-time}}}
     Approval: {type: object, properties: {id: {type: string}, status: {type: string}, actionType: {type: string}, actionSummary: {type: string}}}
+    CreateKnowledgeBaseRequest: {type: object, required: [name], properties: {name: {type: string}, description: {type: string}}}
+    KnowledgeBase: {type: object, properties: {id: {type: string}, name: {type: string}, description: {type: string}, status: {type: string}}}
+    KnowledgeDocument: {type: object, properties: {id: {type: string}, fileName: {type: string}, contentHash: {type: string}, status: {type: string}}}
+    CreateModelConfigRequest: {type: object, required: [name, protocol, baseUrl, modelName, apiKey], properties: {name: {type: string}, protocol: {type: string, enum: [OPENAI_COMPATIBLE, ANTHROPIC_MESSAGES]}, baseUrl: {type: string, format: uri}, modelName: {type: string}, apiKey: {type: string, writeOnly: true}, isDefault: {type: boolean}}}
+    ModelProbeRequest: {type: object, required: [baseUrl, apiKey], properties: {baseUrl: {type: string, format: uri}, apiKey: {type: string, writeOnly: true}}}
+    ModelConfig: {type: object, properties: {id: {type: string}, name: {type: string}, protocol: {type: string}, baseUrl: {type: string}, modelName: {type: string}, isDefault: {type: boolean}}}
     Problem: {type: object, properties: {type: {type: string, format: uri}, title: {type: string}, status: {type: integer}, detail: {type: string}, code: {type: string}, requestId: {type: string}}}

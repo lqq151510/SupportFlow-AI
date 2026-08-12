@@ -18,6 +18,7 @@ import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -25,6 +26,9 @@ class SupportFlowApplicationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
 
     @Test
@@ -263,6 +267,16 @@ class SupportFlowApplicationTest {
         MvcResult uploaded = mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING")).andReturn();
         String documentId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(get("/api/v1/admin/knowledge-bases").header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(knowledgeBaseId))
+                .andExpect(jsonPath("$[0].name").value("Policies"));
+        mockMvc.perform(get(path).header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(documentId))
+                .andExpect(jsonPath("$[0].fileName").value("policy.txt"));
+        mockMvc.perform(get("/api/v1/admin/knowledge-bases").header("Authorization", "Bearer " + attackerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        mockMvc.perform(get(path).header("Authorization", "Bearer " + attackerToken))
+                .andExpect(status().isBadRequest());
         mockMvc.perform(get(path + "/" + documentId).header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("EMBEDDING")).andExpect(jsonPath("$.chunkCount").value(1));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
@@ -270,6 +284,26 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post(path).header("Authorization", "Bearer " + attackerToken).contentType("application/json")
                         .content("{\"fileName\":\"attack.txt\",\"content\":\"Other content\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void modelConfigurationCatalogIsTenantScopedAndNeverReturnsSecrets() throws Exception {
+        registerTenant("model-owner", "admin@model-owner.test");
+        registerTenant("model-other", "admin@model-other.test");
+        String ownerToken = loginAccessToken("model-owner", "admin@model-owner.test", "safe-password-123");
+        String otherToken = loginAccessToken("model-other", "admin@model-other.test", "safe-password-123");
+
+        Long tenantId = jdbc.queryForObject("SELECT id FROM tenants WHERE code = ?", Long.class, "model-owner");
+        long modelId = 9_007_199_254_740_993L;
+        jdbc.update("INSERT INTO model_configs (id, tenant_id, name, protocol, base_url, model_name, encrypted_api_key, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                modelId, tenantId, "Primary chat", "OPENAI_COMPATIBLE", "https://api.example.com/v1", "support-model", "encrypted-test-fixture", true);
+
+        mockMvc.perform(get("/api/v1/admin/models").header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(Long.toString(modelId)))
+                .andExpect(jsonPath("$[0].modelName").value("support-model"))
+                .andExpect(jsonPath("$[0].apiKey").doesNotExist());
+        mockMvc.perform(get("/api/v1/admin/models").header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
     }
 
     @Test
