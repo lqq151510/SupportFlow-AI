@@ -43,7 +43,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:5173 \
 npm --prefix frontend run test:e2e
 ```
 
-该用例覆盖消费者注册、创建会话、人工转接 SSE，以及坐席登录、认领工单、记录内部备注、解决并关闭工单；GitHub Actions 会自动执行它。
+快速 E2E 覆盖管理端知识库与模型配置，以及消费者注册、创建会话、人工转接 SSE、坐席认领、备注、解决和关闭工单；GitHub Actions 会自动执行它。需要重新生成约 3 分钟的演示录像时，单独运行 `npm --prefix frontend run test:demo`，避免录屏等待拖慢日常反馈。
 
 ## Docker 基础设施
 

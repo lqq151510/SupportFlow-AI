@@ -17,7 +17,7 @@ async function scene(page, title: string, detail: string, milliseconds = 7_000) 
   await page.evaluate(() => document.querySelector('[data-demo-caption]')?.remove());
 }
 
-test('records the SupportFlow AI consumer-to-agent demo', async ({browser, request, baseURL}) => {
+test('records the SupportFlow AI consumer-to-agent demo', {tag: '@demo'}, async ({browser, request, baseURL}) => {
   test.setTimeout(300_000);
   const suffix = `${Date.now()}${Math.floor(Math.random() * 10_000)}`;
   const tenantCode = `demo-${suffix}`;
