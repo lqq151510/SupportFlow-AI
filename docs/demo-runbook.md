@@ -25,6 +25,13 @@
 ```zsh
 mvn -B -f backend/pom.xml test
 npm --prefix frontend run build
+SUPPORTFLOW_JWT_SECRET_BASE64='<at-least-32-byte-base64-secret>' docker compose --profile app config --quiet
 ```
 
-在 Docker 阶段再执行 Testcontainers 和完整 k6；它们依赖实际容器运行时与压测工具，不能由 H2/mock 测试替代。
+`InfrastructureContainerIntegrationTest` 会使用 Testcontainers 启动隔离的 MySQL 与 Redis，验证 SQL 连通性、Redis Stream 的租户隔离、游标重放、状态事件幂等和 TTL：
+
+```zsh
+mvn -B -f backend/pom.xml -Dtest=InfrastructureContainerIntegrationTest test
+```
+
+完整 k6 仍需要安装 `k6` 并向压测环境注入短期消费者令牌；执行方式见 `perf/k6/README.md`。它不能由 H2/mock 测试替代。
