@@ -14,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import org.springframework.context.ApplicationEventPublisher;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -36,7 +37,7 @@ class RocketMqContainerIntegrationTest {
                 brokerId=0
                 listenPort=%d
                 namesrvAddr=rocketmq-namesrv:9876
-                autoCreateTopicEnable=true
+                autoCreateTopicEnable=false
                 brokerIP1=127.0.0.1
                 """.formatted(brokerPort);
 
@@ -55,13 +56,20 @@ class RocketMqContainerIntegrationTest {
                 .withCopyToContainer(Transferable.of(brokerConfig), "/tmp/supportflow-broker.conf")
                 .withCommand("sh", "mqbroker", "-n", "rocketmq-namesrv:9876", "-c", "/tmp/supportflow-broker.conf")
                 .withExposedPorts(brokerPort)
-                .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(3)))) {
+                .waitingFor(Wait.forLogMessage(".*The broker\\[.*\\] boot success.*\\n", 1)
+                        .withStartupTimeout(Duration.ofMinutes(3)))) {
             nameserver.start();
             broker.setPortBindings(List.of(brokerPort + ":" + brokerPort));
             broker.start();
 
             String nameserverAddress = nameserver.getHost() + ":" + nameserver.getMappedPort(9876);
             String topic = "supportflow-it-" + System.nanoTime();
+            var topicCreation = broker.execInContainer("sh", "mqadmin", "updateTopic",
+                    "-n", "rocketmq-namesrv:9876", "-b", "127.0.0.1:" + brokerPort,
+                    "-t", topic, "-r", "2", "-w", "2");
+            assertThat(topicCreation.getExitCode()).as(topicCreation.getStderr()).isZero();
+            assertThat(topicCreation.getStdout()).as(topicCreation.getStderr()).contains("create topic to");
+            awaitTopicRoute(nameserverAddress, topic);
             CountDownLatch consumed = new CountDownLatch(1);
             AtomicReference<PublishedOutboxEvent> received = new AtomicReference<>();
             AtomicReference<Long> tenantDuringPublish = new AtomicReference<>();
@@ -99,6 +107,27 @@ class RocketMqContainerIntegrationTest {
     private int availablePort() throws Exception {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
+        }
+    }
+
+    private void awaitTopicRoute(String nameserverAddress, String topic) throws Exception {
+        DefaultMQProducer probe = new DefaultMQProducer("supportflow-it-route-probe-" + System.nanoTime());
+        probe.setNamesrvAddr(nameserverAddress);
+        probe.start();
+        try {
+            Exception lastFailure = null;
+            for (int attempt = 0; attempt < 60; attempt++) {
+                try {
+                    if (!probe.fetchPublishMessageQueues(topic).isEmpty()) return;
+                } catch (Exception exception) {
+                    // NameServer registration is asynchronous after explicit topic creation.
+                    lastFailure = exception;
+                }
+                Thread.sleep(500);
+            }
+            throw new IllegalStateException("RocketMQ topic route did not become visible: " + topic, lastFailure);
+        } finally {
+            probe.shutdown();
         }
     }
 }
