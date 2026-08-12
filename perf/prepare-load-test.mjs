@@ -19,7 +19,7 @@ async function request(path, {method = 'GET', token, body, expected = 200} = {})
     throw new Error(`${method} ${path} returned ${response.status}: ${text}`);
   }
   if (response.status === 204 || text.length === 0) return null;
-  return JSON.parse(text.replace(/"id":(\d+)/g, '"id":"$1"'));
+  return JSON.parse(text);
 }
 
 await request('/api/v1/tenants/register', {

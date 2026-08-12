@@ -257,13 +257,13 @@ class SupportFlowApplicationTest {
                         .header("Authorization", "Bearer " + ownerToken).contentType("application/json")
                         .content("{\"name\":\"Policies\",\"description\":\"Support policies\"}"))
                 .andExpect(status().isCreated()).andReturn();
-        Number knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
-        String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId.longValue() + "/documents";
+        String knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
+        String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId + "/documents";
         String document = "{\"fileName\":\"policy.txt\",\"content\":\"Refund policy content\"}";
         MvcResult uploaded = mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING")).andReturn();
-        Number documentId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.id");
-        mockMvc.perform(get(path + "/" + documentId.longValue()).header("Authorization", "Bearer " + ownerToken))
+        String documentId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(get(path + "/" + documentId).header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("EMBEDDING")).andExpect(jsonPath("$.chunkCount").value(1));
         mockMvc.perform(post(path).header("Authorization", "Bearer " + ownerToken).contentType("application/json").content(document))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
@@ -280,8 +280,8 @@ class SupportFlowApplicationTest {
                         .header("Authorization", "Bearer " + token).contentType("application/json")
                         .content("{\"name\":\"Returns\",\"description\":\"Return policy\"}"))
                 .andExpect(status().isCreated()).andReturn();
-        Number knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
-        String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId.longValue() + "/documents/upload";
+        String knowledgeBaseId = JsonPath.read(base.getResponse().getContentAsString(), "$.id");
+        String path = "/api/v1/admin/knowledge-bases/" + knowledgeBaseId + "/documents/upload";
         MockMultipartFile file = new MockMultipartFile("file", "returns.md", "text/markdown", "# Returns\nItems can be returned within 30 days.".getBytes());
         mockMvc.perform(multipart(path).file(file).header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("EMBEDDING"));
