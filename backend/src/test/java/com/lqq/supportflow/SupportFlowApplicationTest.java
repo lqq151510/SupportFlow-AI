@@ -352,12 +352,20 @@ class SupportFlowApplicationTest {
         MvcResult created = mockMvc.perform(post("/api/v1/admin/approvals")
                         .header("Authorization", "Bearer " + token)
                         .contentType("application/json")
-                        .content("{\"actionType\":\"refund.request\",\"actionSummary\":\"Refund eligible order\"}"))
+                        .content("""
+                                {"actionType":"refund.request","actionSummary":"Refund eligible order",
+                                 "orderNo":"DEMO-001","amount":88.00,"currency":"CNY",
+                                 "eligibilityEvidence":"eligible=true; reason=within refund window"}
+                                """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.orderNo").value("DEMO-001"))
+                .andExpect(jsonPath("$.amount").value(88.00))
+                .andExpect(jsonPath("$.currency").value("CNY"))
+                .andExpect(jsonPath("$.version").value(0))
                 .andReturn();
-        Number approvalId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
-        String decisionPath = "/api/v1/admin/approvals/" + approvalId.longValue() + "/decision";
+        String approvalId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        String decisionPath = "/api/v1/admin/approvals/" + approvalId + "/decision";
 
         for (int attempt = 0; attempt < 2; attempt++) {
             mockMvc.perform(post(decisionPath)
@@ -366,9 +374,27 @@ class SupportFlowApplicationTest {
                             .contentType("application/json")
                             .content("{\"decision\":\"APPROVED\"}"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.status").value("APPROVED"));
+                    .andExpect(jsonPath("$.status").value("APPROVED"))
+                    .andExpect(jsonPath("$.version").value(1));
         }
+        mockMvc.perform(post(decisionPath)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", "approve-refund-1")
+                        .contentType("application/json")
+                        .content("{\"decision\":\"REJECTED\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
 
+        mockMvc.perform(post("/api/v1/admin/outbox/dispatch")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.published").value(1));
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM action_executions
+                WHERE approval_id = ? AND execution_version = 1
+                  AND business_idempotency_key = ? AND status = 'EXECUTED'
+                """, Integer.class, Long.valueOf(approvalId),
+                "approval:" + approvalId + ":v1:execution:1")).isEqualTo(1);
         mockMvc.perform(post("/api/v1/admin/outbox/dispatch")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
@@ -377,6 +403,30 @@ class SupportFlowApplicationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.published").value(0));
+    }
+
+    @Test
+    void pendingApprovalCanBeRevokedIdempotently() throws Exception {
+        registerTenant("revoke-shop", "admin@revoke.test");
+        String token = loginAccessToken("revoke-shop", "admin@revoke.test", "safe-password-123");
+        MvcResult created = mockMvc.perform(post("/api/v1/admin/approvals")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {"actionType":"compensation.issue","actionSummary":"Service recovery credit",
+                                 "orderNo":"DEMO-001","amount":20.00,"currency":"CNY",
+                                 "eligibilityEvidence":"agent verified service interruption"}
+                                """))
+                .andExpect(status().isCreated()).andReturn();
+        String approvalId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post("/api/v1/admin/approvals/" + approvalId + "/revoke")
+                            .header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", "revoke-compensation-1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("REVOKED"))
+                    .andExpect(jsonPath("$.version").value(1));
+        }
     }
 
     @Test

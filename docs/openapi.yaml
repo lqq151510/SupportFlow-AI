@@ -100,6 +100,11 @@ paths:
       tags: [approvals]
       summary: 查询审批申请
       responses: {'200': {description: 审批列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Approval'}}}}}}
+    post:
+      tags: [approvals]
+      summary: 创建包含标准化业务证据的审批申请
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateApprovalRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/Approval'}}}}, '400': {$ref: '#/components/responses/Problem'}}
   /api/v1/admin/approvals/{approvalId}/decision:
     post:
       tags: [approvals]
@@ -107,6 +112,12 @@ paths:
       parameters: [{name: approvalId, in: path, required: true, schema: {type: string}}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [decision], properties: {decision: {type: string, enum: [APPROVED, REJECTED]}}}}}}
       responses: {'200': {description: 审批结果, content: {application/json: {schema: {$ref: '#/components/schemas/Approval'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/approvals/{approvalId}/revoke:
+    post:
+      tags: [approvals]
+      summary: 撤销仍处于待处理状态的审批申请
+      parameters: [{name: approvalId, in: path, required: true, schema: {type: string}}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: 已撤销, content: {application/json: {schema: {$ref: '#/components/schemas/Approval'}}}}, '409': {$ref: '#/components/responses/Problem'}}
   /api/v1/admin/knowledge-bases:
     get:
       tags: [knowledge]
@@ -173,7 +184,8 @@ components:
     ChangeTicketStatusRequest: {type: object, required: [status], properties: {status: {type: string, enum: [OPEN, PENDING_CUSTOMER, PENDING_APPROVAL, RESOLVED, CLOSED]}}}
     TicketCommentRequest: {type: object, required: [content], properties: {content: {type: string, minLength: 1}}}
     TicketComment: {type: object, properties: {id: {type: string}, ticketId: {type: string}, content: {type: string}, createdAt: {type: string, format: date-time}}}
-    Approval: {type: object, properties: {id: {type: string}, status: {type: string}, actionType: {type: string}, actionSummary: {type: string}}}
+    CreateApprovalRequest: {type: object, required: [actionType, actionSummary, orderNo, amount, currency, eligibilityEvidence], properties: {actionType: {type: string}, actionSummary: {type: string}, orderNo: {type: string}, amount: {type: number, minimum: 0.01}, currency: {type: string, pattern: '^[A-Za-z]{3}$'}, eligibilityEvidence: {type: string}}}
+    Approval: {type: object, properties: {id: {type: string}, status: {type: string, enum: [PENDING, APPROVED, REJECTED, REVOKED, EXPIRED, EXECUTING, EXECUTED, FAILED]}, actionType: {type: string}, actionSummary: {type: string}, orderNo: {type: string}, amount: {type: number}, currency: {type: string}, eligibilityEvidence: {type: string}, requestedByMembershipId: {type: string}, decidedByMembershipId: {type: string}, version: {type: integer, format: int64}, expiresAt: {type: string, format: date-time}}}
     CreateKnowledgeBaseRequest: {type: object, required: [name], properties: {name: {type: string}, description: {type: string}}}
     KnowledgeBase: {type: object, properties: {id: {type: string}, name: {type: string}, description: {type: string}, status: {type: string}, version: {type: integer, format: int64, minimum: 1}}}
     KnowledgeDocument: {type: object, properties: {id: {type: string}, fileName: {type: string}, contentHash: {type: string}, status: {type: string}}}
