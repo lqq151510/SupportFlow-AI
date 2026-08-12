@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://supportflow.local/schemas/rocketmq-envelope-v1.schema.json",
+  "title": "SupportFlow RocketMQ envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "tenantId", "eventType", "payload", "occurredAt"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "eventId": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "tenantId": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "eventType": {"type": "string", "minLength": 1},
+    "payload": {"type": "string", "contentMediaType": "application/json"},
+    "occurredAt": {"type": "string", "format": "date-time"}
+  }
+}

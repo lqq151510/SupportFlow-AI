@@ -72,7 +72,7 @@ class RocketMqContainerIntegrationTest {
                     consumed.countDown();
                 }
             };
-            ObjectMapper json = new ObjectMapper();
+            ObjectMapper json = new ObjectMapper().findAndRegisterModules();
             RocketMqSpringEventConsumer consumer = new RocketMqSpringEventConsumer(
                     json, publisher, nameserverAddress, topic, "supportflow-it-consumer-" + System.nanoTime(), 2);
             RocketMqOutboxDeliveryGateway producer = new RocketMqOutboxDeliveryGateway(

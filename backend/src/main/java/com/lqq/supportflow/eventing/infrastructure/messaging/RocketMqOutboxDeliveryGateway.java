@@ -17,7 +17,8 @@ public class RocketMqOutboxDeliveryGateway implements OutboxDeliveryGateway {
     private final ObjectMapper json; private final String nameserver; private final String topic; private DefaultMQProducer producer;
     public RocketMqOutboxDeliveryGateway(ObjectMapper json, @Value("${supportflow.eventing.rocketmq.nameserver}") String nameserver, @Value("${supportflow.eventing.rocketmq.topic}") String topic) { this.json = json; this.nameserver = nameserver; this.topic = topic; }
     @PostConstruct void start() { try { producer = new DefaultMQProducer("supportflow-outbox-producer"); producer.setNamesrvAddr(nameserver); producer.start(); } catch (Exception exception) { throw new IllegalStateException("RocketMQ producer failed to start", exception); } }
-    @Override public void publish(OutboxEvent event) { try { Message message = new Message(topic, event.eventType().replace('.', '_'), event.tenantId() + ":" + event.id(), json.writeValueAsBytes(new RocketMqEnvelope(event.id(), event.tenantId(), event.eventType(), event.payload()))); producer.send(message); } catch (Exception exception) { throw new IllegalStateException("RocketMQ publish failed", exception); } }
+    @Override public void publish(OutboxEvent event) { try { Message message = new Message(topic, event.eventType().replace('.', '_'), event.tenantId() + ":" + event.id(), json.writeValueAsBytes(new RocketMqEnvelope(1, event.id().toString(), event.tenantId().toString(), event.eventType(), event.payload(), event.createdAt()))); message.putUserProperty("schemaVersion", "1"); producer.send(message); } catch (Exception exception) { throw new IllegalStateException("RocketMQ publish failed", exception); } }
     @PreDestroy void stop() { if (producer != null) producer.shutdown(); }
-    public record RocketMqEnvelope(Long eventId, Long tenantId, String eventType, String payload) { }
+    public record RocketMqEnvelope(int schemaVersion, String eventId, String tenantId,
+                                   String eventType, String payload, java.time.Instant occurredAt) { }
 }
