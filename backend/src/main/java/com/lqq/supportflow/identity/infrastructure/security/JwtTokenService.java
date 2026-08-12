@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
 public class JwtTokenService implements TokenIssuer, RefreshTokenVerifier, AccessTokenVerifier {
     private final JwtProperties properties; private final Clock clock; private final SecretKey key;
     public JwtTokenService(JwtProperties properties) {
-        this.properties = properties; this.clock = Clock.systemUTC(); this.key = Keys.hmacShaKeyFor(Base64.getDecoder().decode(properties.secretBase64()));
+        this.properties = properties; this.clock = Clock.systemUTC(); this.key = signingKey(properties.secretBase64());
     }
     @Override
     public IssuedToken issueAccessToken(Long userId, Long tenantId, Long membershipId, String role) {
@@ -81,5 +81,20 @@ public class JwtTokenService implements TokenIssuer, RefreshTokenVerifier, Acces
                 .claim("tenantId", tenantId.toString()).claim("membershipId", membershipId.toString()).claim("role", role)
                 .issuedAt(Date.from(now)).expiration(Date.from(expiresAt)).signWith(key).compact();
         return new IssuedToken(value, jti, expiresAt);
+    }
+
+    private SecretKey signingKey(String secretBase64) {
+        if (secretBase64 == null || secretBase64.isBlank()) {
+            throw new IllegalStateException("SUPPORTFLOW_JWT_SECRET_BASE64 must be set to a Base64-encoded secret of at least 32 bytes");
+        }
+        try {
+            byte[] secret = Base64.getDecoder().decode(secretBase64);
+            if (secret.length < 32) {
+                throw new IllegalStateException("SUPPORTFLOW_JWT_SECRET_BASE64 must decode to at least 32 bytes");
+            }
+            return Keys.hmacShaKeyFor(secret);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("SUPPORTFLOW_JWT_SECRET_BASE64 must be valid Base64", exception);
+        }
     }
 }
