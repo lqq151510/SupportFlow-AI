@@ -83,7 +83,7 @@ test('records the SupportFlow AI consumer-to-agent demo', async ({browser, reque
   await expect(page.getByText('工单已关闭。')).toBeVisible();
   await scene(page, '闭环完成', '消费者咨询、AI 分流、人工处理和工单关闭已完整贯通', 10_000);
 
-  await page.getByRole('button', {name: '知识库'}).click();
+  await page.getByRole('button', {name: '知识库', exact: true}).click();
   await scene(page, 'RAG 知识库', '文档摄取、分块、向量检索和引用均按 tenantId 隔离', 9_000);
   await page.getByRole('button', {name: '自动化'}).click();
   await scene(page, '高风险审批', '退款和补偿永远需要人工确认，再由 Outbox 与 RocketMQ 可靠执行', 10_000);

@@ -1,5 +1,21 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
+function accessToken(message) {
+  const token = localStorage.getItem('supportflow.accessToken');
+  if (!token) throw new Error(message);
+  return token;
+}
+
+async function adminRequest(path, options = {}, errorLabel = '请求失败') {
+  const token = accessToken('请先登录管理工作台');
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {Authorization: `Bearer ${token}`, ...options.headers},
+  });
+  if (!response.ok) throw new Error(`${errorLabel} (${response.status})`);
+  return response.status === 204 ? null : response.json();
+}
+
 export async function getOperationsOverview() {
   const token = localStorage.getItem('supportflow.accessToken');
   if (!token) throw new Error('请先登录以查看运营数据');
@@ -19,6 +35,25 @@ export async function getTickets() {
   if (!response.ok) throw new Error(`工单加载失败 (${response.status})`);
   return response.json();
 }
+
+export const getKnowledgeBases = () => adminRequest('/api/v1/admin/knowledge-bases', {}, '知识库加载失败');
+export const createKnowledgeBase = values => adminRequest('/api/v1/admin/knowledge-bases', {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
+}, '知识库创建失败');
+export const getKnowledgeDocuments = knowledgeBaseId => adminRequest(`/api/v1/admin/knowledge-bases/${knowledgeBaseId}/documents`, {}, '文档加载失败');
+export const uploadKnowledgeDocument = (knowledgeBaseId, file) => {
+  const body = new FormData();
+  body.append('file', file);
+  return adminRequest(`/api/v1/admin/knowledge-bases/${knowledgeBaseId}/documents/upload`, {method: 'POST', body}, '文档上传失败');
+};
+
+export const getModelConfigs = () => adminRequest('/api/v1/admin/models', {}, '模型配置加载失败');
+export const createModelConfig = values => adminRequest('/api/v1/admin/models', {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
+}, '模型配置保存失败');
+export const probeModelConnection = ({baseUrl, apiKey}) => adminRequest('/api/v1/admin/models/probe', {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({baseUrl, apiKey}),
+}, '模型连接探测失败');
 
 async function ticketRequest(ticketId, suffix, options = {}) {
   const token = localStorage.getItem('supportflow.accessToken');
