@@ -26,6 +26,7 @@ public class MyBatisTicketAdapter implements TicketPort {
         mapper.insert(entity); return ticket(entity);
     }
     @Override public List<Ticket> list(Long tenantId) { return mapper.selectList(new QueryWrapper<TicketEntity>().eq("tenant_id", tenantId).orderByAsc("first_response_due_at")).stream().map(this::ticket).toList(); }
+    @Override public Ticket get(Long tenantId, Long ticketId) { return ticket(owned(tenantId, ticketId)); }
     @Override public Ticket claim(Long tenantId, Long ticketId, Long membershipId, String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 128) {
             throw new IllegalArgumentException("a valid Idempotency-Key is required");
@@ -67,7 +68,7 @@ public class MyBatisTicketAdapter implements TicketPort {
     private TicketEntity owned(Long tenantId, Long ticketId) { TicketEntity entity = mapper.selectOne(new QueryWrapper<TicketEntity>().eq("id", ticketId).eq("tenant_id", tenantId)); if (entity == null) throw new IllegalArgumentException("ticket does not belong to tenant"); return entity; }
     private TicketEntity claimedWith(Long tenantId, Long membershipId, String idempotencyKey) { return mapper.selectOne(new QueryWrapper<TicketEntity>().eq("tenant_id", tenantId).eq("assigned_membership_id", membershipId).eq("claim_idempotency_key", idempotencyKey)); }
     private void recordAssignment(Long tenantId, Long ticketId, Long fromMembershipId, Long toMembershipId, Long actorMembershipId) { TicketAssignmentEntity audit = new TicketAssignmentEntity(); audit.tenantId = tenantId; audit.ticketId = ticketId; audit.fromMembershipId = fromMembershipId; audit.toMembershipId = toMembershipId; audit.assignedByMembershipId = actorMembershipId; audit.createdAt = Instant.now(); assignments.insert(audit); }
-    private Ticket ticket(TicketEntity entity) { return new Ticket(entity.id, entity.customerId, entity.title, TicketStatus.valueOf(entity.status), TicketPriority.valueOf(entity.priority), entity.assignedMembershipId, entity.firstResponseDueAt, entity.resolutionDueAt); }
+    private Ticket ticket(TicketEntity entity) { return new Ticket(entity.id, entity.customerId, entity.conversationId, entity.title, TicketStatus.valueOf(entity.status), TicketPriority.valueOf(entity.priority), entity.assignedMembershipId, entity.firstResponseDueAt, entity.resolutionDueAt); }
     private boolean canTransition(TicketStatus current, TicketStatus target) { return switch (current) { case NEW -> target == TicketStatus.OPEN; case OPEN -> target == TicketStatus.PENDING_CUSTOMER || target == TicketStatus.PENDING_APPROVAL || target == TicketStatus.RESOLVED; case PENDING_CUSTOMER, PENDING_APPROVAL -> target == TicketStatus.OPEN || target == TicketStatus.RESOLVED; case RESOLVED -> target == TicketStatus.OPEN || target == TicketStatus.CLOSED; case CLOSED -> false; }; }
     private Duration firstResponse(TicketPriority priority) { return switch (priority) { case LOW -> Duration.ofHours(8); case NORMAL -> Duration.ofHours(4); case HIGH -> Duration.ofHours(1); case URGENT -> Duration.ofMinutes(15); }; }
     private Duration resolution(TicketPriority priority) { return switch (priority) { case LOW -> Duration.ofHours(72); case NORMAL -> Duration.ofHours(48); case HIGH -> Duration.ofHours(12); case URGENT -> Duration.ofHours(4); }; }

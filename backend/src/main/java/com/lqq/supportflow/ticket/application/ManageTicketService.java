@@ -23,6 +23,7 @@ public class ManageTicketService {
     }
 
     public List<Ticket> list(Long tenantId) { return tickets.list(tenantId); }
+    public Ticket get(Long tenantId, Long ticketId) { return tickets.get(tenantId, ticketId); }
 
     @Transactional
     public Ticket claim(Long tenantId, Long ticketId, Long membershipId, String idempotencyKey) {

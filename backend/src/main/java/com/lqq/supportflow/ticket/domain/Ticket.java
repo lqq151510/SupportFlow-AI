@@ -7,6 +7,7 @@ import java.time.Instant;
 public record Ticket(
         @JsonSerialize(using = ToStringSerializer.class) Long id,
         @JsonSerialize(using = ToStringSerializer.class) Long customerId,
+        @JsonSerialize(using = ToStringSerializer.class) Long conversationId,
         String title,
         TicketStatus status,
         TicketPriority priority,

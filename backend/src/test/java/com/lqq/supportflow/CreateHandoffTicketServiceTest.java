@@ -26,7 +26,7 @@ class CreateHandoffTicketServiceTest {
         OutboxService outbox = mock(OutboxService.class);
         Instant first = Instant.now().plusSeconds(600);
         Instant resolution = first.plusSeconds(3600);
-        Ticket ticket = new Ticket(11L, 9L, "handoff", TicketStatus.NEW, TicketPriority.NORMAL, null, first, resolution);
+        Ticket ticket = new Ticket(11L, 9L, 10L, "handoff", TicketStatus.NEW, TicketPriority.NORMAL, null, first, resolution);
         when(tickets.create(7L, 9L, 10L, "handoff", TicketPriority.NORMAL)).thenReturn(ticket);
         when(sla.markAlerted(org.mockito.ArgumentMatchers.any())).thenReturn(true);
 

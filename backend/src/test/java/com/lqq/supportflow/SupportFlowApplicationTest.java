@@ -488,6 +488,13 @@ class SupportFlowApplicationTest {
                 .andReturn();
         String ticketId = JsonPath.read(tickets.getResponse().getContentAsString(), "$[0].id");
         String ticketPath = "/api/v1/admin/tickets/" + ticketId;
+        mockMvc.perform(get(ticketPath + "/context").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ticket.conversationId").value(conversationId))
+                .andExpect(jsonPath("$.conversation.messages[0].senderType").value("CUSTOMER"))
+                .andExpect(jsonPath("$.conversation.messages[0].content").value("我要人工客服处理退款"))
+                .andExpect(jsonPath("$.conversation.traces").isEmpty())
+                .andExpect(jsonPath("$.orders[0].orderNo").value("DEMO-001"));
         for (int attempt = 0; attempt < 2; attempt++) {
             mockMvc.perform(post(ticketPath + "/claim")
                             .header("Authorization", "Bearer " + adminToken)

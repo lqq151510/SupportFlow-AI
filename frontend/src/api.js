@@ -78,6 +78,7 @@ export const assignTicket = (ticketId, membershipId) => ticketRequest(ticketId, 
 });
 export const changeTicketStatus = (ticketId, status) => ticketRequest(ticketId, '/status', {method: 'POST', body: JSON.stringify({status})});
 export const getTicketComments = ticketId => ticketRequest(ticketId, '/comments');
+export const getTicketContext = ticketId => ticketRequest(ticketId, '/context');
 export const addTicketComment = (ticketId, content) => ticketRequest(ticketId, '/comments', {method: 'POST', body: JSON.stringify({content})});
 
 export async function getApprovals() {

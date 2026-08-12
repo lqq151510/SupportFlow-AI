@@ -81,6 +81,12 @@ paths:
       summary: 认领未分配工单
       parameters: [{$ref: '#/components/parameters/TicketId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses: {'200': {description: 已认领, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}, '409': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/tickets/{ticketId}/context:
+    get:
+      tags: [tickets]
+      summary: 查询工单关联会话消息、知识与工具轨迹及消费者订单
+      parameters: [{$ref: '#/components/parameters/TicketId'}]
+      responses: {'200': {description: 坐席处理上下文}, '400': {$ref: '#/components/responses/Problem'}}
   /api/v1/admin/tickets/{ticketId}/assign:
     post:
       tags: [tickets]
