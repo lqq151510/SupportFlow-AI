@@ -44,14 +44,16 @@ npm --prefix frontend run test:e2e
 
 ## Docker 基础设施
 
-复制环境变量模板后启动依赖服务：
+复制环境变量模板后，可以一键构建并启动完整本地环境：
 
 ```bash
 cp .env.example .env
-docker compose up -d
+docker compose --profile app up --build
 ```
 
-Docker Compose 当前提供依赖服务和后端镜像构建入口。账号与密码仅适用于本地开发，禁止把真实密钥写入 `.env.example` 或提交到仓库。启动 backend profile 前需要设置 `SUPPORTFLOW_JWT_SECRET_BASE64`。
+启动后，前端为 http://localhost:5173，后端健康检查为 http://localhost:8080/actuator/health。容器前端会通过同源 `/api` 转发请求给后端，不依赖浏览器直连后端端口。若只需启动中间件，使用 `docker compose up -d`。
+
+账号、密码和 JWT 密钥仅适用于本地开发，禁止把真实生产密钥写入 `.env.example` 或提交到仓库；完整应用启动前需在 `.env` 中设置 `SUPPORTFLOW_JWT_SECRET_BASE64`。
 
 ## 验证
 
