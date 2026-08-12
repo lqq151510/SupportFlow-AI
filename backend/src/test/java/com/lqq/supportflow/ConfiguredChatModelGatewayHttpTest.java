@@ -20,8 +20,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ConfiguredChatModelGatewayHttpTest {
     @Test
@@ -57,12 +59,36 @@ class ConfiguredChatModelGatewayHttpTest {
         } finally { server.stop(0); }
     }
 
+    @Test
+    void propagatesServerErrorsAndTimesOutStalledStreams() throws Exception {
+        HttpServer failed = server(exchange -> { exchange.sendResponseHeaders(503, -1); exchange.close(); });
+        try {
+            assertThatThrownBy(() -> gateway(failed, ModelProtocol.OPENAI_COMPATIBLE, Duration.ofSeconds(1))
+                    .stream(request()).collectList().block())
+                    .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable.class);
+        } finally { failed.stop(0); }
+
+        HttpServer stalled = server(exchange -> {
+            try { Thread.sleep(250); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            exchange.sendResponseHeaders(200, -1); exchange.close();
+        });
+        try {
+            assertThatThrownBy(() -> gateway(stalled, ModelProtocol.ANTHROPIC_MESSAGES, Duration.ofMillis(30))
+                    .stream(request()).collectList().block())
+                    .hasRootCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+        } finally { stalled.stop(0); }
+    }
+
     private ConfiguredChatModelGateway gateway(HttpServer server, ModelProtocol protocol) {
+        return gateway(server, protocol, Duration.ofSeconds(5));
+    }
+
+    private ConfiguredChatModelGateway gateway(HttpServer server, ModelProtocol protocol, Duration timeout) {
         ModelConfigPort configs = mock(ModelConfigPort.class); ModelSecretPort secrets = mock(ModelSecretPort.class);
         when(configs.findDefaultChat(7L)).thenReturn(Optional.of(new ChatModelConfig(protocol, "http://localhost:" + server.getAddress().getPort(), "test-model", "encrypted")));
         when(secrets.decrypt("encrypted")).thenReturn("decrypted-key");
         ObjectMapper json = new ObjectMapper();
-        return new ConfiguredChatModelGateway(configs, secrets, WebClient.builder(), new OpenAiCompatibleEventNormalizer(json), new AnthropicMessagesEventNormalizer(json));
+        return new ConfiguredChatModelGateway(configs, secrets, WebClient.builder(), new OpenAiCompatibleEventNormalizer(json), new AnthropicMessagesEventNormalizer(json), timeout);
     }
 
     private ChatModelRequest request() { return new ChatModelRequest(7L, List.of(new ChatModelRequest.ChatMessage("user", "hello")), List.of()); }

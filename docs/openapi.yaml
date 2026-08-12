@@ -181,6 +181,12 @@ paths:
       summary: 探测模型服务连通性
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ModelProbeRequest'}}}}
       responses: {'200': {description: 探测结果}}
+  /api/v1/admin/models/{modelConfigId}/default:
+    patch:
+      tags: [models]
+      summary: 切换当前租户默认聊天模型
+      parameters: [{name: modelConfigId, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: 已切换，后续请求即时读取新配置, content: {application/json: {schema: {$ref: '#/components/schemas/ModelConfig'}}}}, '400': {$ref: '#/components/responses/Problem'}}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}

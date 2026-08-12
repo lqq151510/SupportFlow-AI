@@ -10,6 +10,16 @@ import org.springframework.stereotype.Component;
         Instant now=Instant.now(); if(isDefault) mapper.update(new ModelConfigEntity(),new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<ModelConfigEntity>().eq("tenant_id",tenantId).set("is_default",false).set("updated_at",now)); ModelConfigEntity entity=new ModelConfigEntity(); entity.tenantId=tenantId; entity.name=name; entity.protocol=protocol.name(); entity.baseUrl=baseUrl; entity.modelName=modelName; entity.encryptedApiKey=encryptedApiKey; entity.isDefault=isDefault; entity.createdAt=now; entity.updatedAt=now; mapper.insert(entity);
         return new ModelConfig(entity.id,name,protocol,baseUrl,modelName,isDefault);
     }
+    public ModelConfig setDefault(Long tenantId, Long modelConfigId) {
+        ModelConfigEntity target = mapper.selectOne(new QueryWrapper<ModelConfigEntity>().eq("id", modelConfigId).eq("tenant_id", tenantId));
+        if (target == null) throw new IllegalArgumentException("model configuration does not belong to tenant");
+        Instant now = Instant.now();
+        mapper.update(new ModelConfigEntity(), new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<ModelConfigEntity>()
+                .eq("tenant_id", tenantId).set("is_default", false).set("updated_at", now));
+        mapper.update(new ModelConfigEntity(), new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<ModelConfigEntity>()
+                .eq("id", modelConfigId).eq("tenant_id", tenantId).set("is_default", true).set("updated_at", now));
+        return new ModelConfig(target.id, target.name, ModelProtocol.valueOf(target.protocol), target.baseUrl, target.modelName, true);
+    }
     public java.util.List<ModelConfig> list(Long tenantId) { return mapper.selectList(new QueryWrapper<ModelConfigEntity>().eq("tenant_id",tenantId).orderByDesc("is_default").orderByAsc("created_at")).stream().map(entity->new ModelConfig(entity.id,entity.name,ModelProtocol.valueOf(entity.protocol),entity.baseUrl,entity.modelName,Boolean.TRUE.equals(entity.isDefault))).toList(); }
     public java.util.Optional<EmbeddingModelConfig> findDefaultEmbedding(Long tenantId) { return java.util.Optional.ofNullable(mapper.selectOne(new QueryWrapper<ModelConfigEntity>().eq("tenant_id",tenantId).eq("protocol",ModelProtocol.OPENAI_COMPATIBLE.name()).eq("is_default",true))).map(entity->new EmbeddingModelConfig(entity.baseUrl,entity.modelName,entity.encryptedApiKey)); }
     public java.util.Optional<ChatModelConfig> findDefaultChat(Long tenantId) { return java.util.Optional.ofNullable(mapper.selectOne(new QueryWrapper<ModelConfigEntity>().eq("tenant_id",tenantId).eq("is_default",true))).map(entity->new ChatModelConfig(ModelProtocol.valueOf(entity.protocol),entity.baseUrl,entity.modelName,entity.encryptedApiKey)); }

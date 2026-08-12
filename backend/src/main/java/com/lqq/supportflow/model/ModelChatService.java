@@ -24,7 +24,7 @@ public class ModelChatService {
         return gateway.stream(new ChatModelRequest(tenantId, messages.stream()
                         .map(message -> new ChatModelRequest.ChatMessage(message.role(), message.content())).toList(), tools.stream()
                         .map(tool -> new ChatModelRequest.ToolDefinition(tool.name(), tool.description(), tool.inputSchema())).toList()))
-                .map(this::map).onErrorResume(exception -> Flux.just(new ModelStreamEvent("model.failed", "{\"code\":\"MODEL_UNAVAILABLE\"}")));
+                .map(this::map);
     }
 
     private ModelStreamEvent map(ModelEvent event) {

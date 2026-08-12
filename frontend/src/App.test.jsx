@@ -15,6 +15,7 @@ vi.mock('./api.js', async () => ({
   uploadKnowledgeDocument: vi.fn(),
   getModelConfigs: vi.fn().mockResolvedValue([]),
   createModelConfig: vi.fn(),
+  setDefaultModelConfig: vi.fn(),
   probeModelConnection: vi.fn(),
 }));
 
@@ -59,6 +60,6 @@ test('loads model configurations without rendering API keys', async () => {
 
   fireEvent.click(await screen.findByRole('button', {name: '设置'}));
   expect(await screen.findByText('客服主模型 · OPENAI_COMPATIBLE')).toBeInTheDocument();
-  expect(screen.getByText('API Key 使用 AES-GCM 加密，列表接口永不返回明文。')).toBeInTheDocument();
+  expect(screen.getByText(/API Key 使用 AES-GCM 加密，列表接口永不返回明文/)).toBeInTheDocument();
   expect(screen.queryByDisplayValue(/api-key/i)).not.toBeInTheDocument();
 });

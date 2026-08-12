@@ -9,6 +9,7 @@ import com.lqq.supportflow.model.domain.ModelProtocol;
 import com.lqq.supportflow.model.domain.ModelSecretPort;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -26,10 +27,16 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
     private final WebClient client;
     private final OpenAiCompatibleEventNormalizer openAi;
     private final AnthropicMessagesEventNormalizer anthropic;
+    private final Duration timeout;
 
     public ConfiguredChatModelGateway(ModelConfigPort configs, ModelSecretPort secrets, WebClient.Builder builder,
             OpenAiCompatibleEventNormalizer openAi, AnthropicMessagesEventNormalizer anthropic) {
-        this.configs = configs; this.secrets = secrets; this.client = builder.build(); this.openAi = openAi; this.anthropic = anthropic;
+        this(configs, secrets, builder, openAi, anthropic, Duration.ofSeconds(30));
+    }
+
+    public ConfiguredChatModelGateway(ModelConfigPort configs, ModelSecretPort secrets, WebClient.Builder builder,
+            OpenAiCompatibleEventNormalizer openAi, AnthropicMessagesEventNormalizer anthropic, Duration timeout) {
+        this.configs = configs; this.secrets = secrets; this.client = builder.build(); this.openAi = openAi; this.anthropic = anthropic; this.timeout = timeout;
     }
 
     @Override
@@ -45,7 +52,7 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(Map.of("model", config.modelName(), "stream", true, "messages", messages(request.messages()), "tools", openAiTools(request.tools())))
                 .retrieve().bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() { })
-                .map(ServerSentEvent::data).filter(data -> data != null));
+                .map(ServerSentEvent::data).filter(data -> data != null).timeout(timeout));
     }
 
     private Flux<ModelEvent> anthropic(ChatModelConfig config, ChatModelRequest request) {
@@ -54,7 +61,7 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(Map.of("model", config.modelName(), "stream", true, "max_tokens", 1024, "messages", messages(request.messages()), "tools", anthropicTools(request.tools())))
                 .retrieve().bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() { })
-                .map(frame -> new AnthropicMessagesEventNormalizer.AnthropicSseFrame(frame.event(), frame.data())));
+                .map(frame -> new AnthropicMessagesEventNormalizer.AnthropicSseFrame(frame.event(), frame.data())).timeout(timeout));
     }
 
     private List<Map<String, String>> messages(List<ChatModelRequest.ChatMessage> messages) { return messages.stream().map(message -> Map.of("role", message.role(), "content", message.content())).toList(); }

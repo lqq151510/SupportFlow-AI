@@ -10,6 +10,7 @@
 | `generation.running` | `{"status":"RUNNING"}` | 至多一次状态标记 |
 | `text.delta` | `{"text":"…"}` | 可重复接收，客户端按 SSE id 去重并顺序拼接 |
 | `knowledge.citations` | `[{"rank":1,"documentId":…,"chunkId":…,"content":"…","score":…}]` | 生成过程中的证据快照 |
+| `generation.reset` | `{"reason":"MODEL_RETRY"}` | 模型在执行工具前因超时或 5xx 重试；客户端丢弃上一尝试已显示的增量 |
 | `tool.started` / `tool.arguments.delta` / `tool.completed` / `tool.result` | 工具名称、参数或结果 | 只读工具结果可展示；高风险工具产生审批，不直接执行 |
 | `model.failed` | `{"code":"…"}` | 终态前的错误说明 |
 | `handoff.required` | `{"status":"HANDOFF_REQUIRED"}` | 至多一次终态标记 |

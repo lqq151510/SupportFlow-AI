@@ -300,6 +300,9 @@ class SupportFlowApplicationTest {
         long modelId = 9_007_199_254_740_993L;
         jdbc.update("INSERT INTO model_configs (id, tenant_id, name, protocol, base_url, model_name, encrypted_api_key, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 modelId, tenantId, "Primary chat", "OPENAI_COMPATIBLE", "https://api.example.com/v1", "support-model", "encrypted-test-fixture", true);
+        long alternateModelId = modelId + 2;
+        jdbc.update("INSERT INTO model_configs (id, tenant_id, name, protocol, base_url, model_name, encrypted_api_key, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                alternateModelId, tenantId, "Alternate chat", "ANTHROPIC_MESSAGES", "https://api.example.com", "alternate-model", "encrypted-test-fixture", false);
 
         mockMvc.perform(get("/api/v1/admin/models").header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(Long.toString(modelId)))
@@ -307,6 +310,18 @@ class SupportFlowApplicationTest {
                 .andExpect(jsonPath("$[0].apiKey").doesNotExist());
         mockMvc.perform(get("/api/v1/admin/models").header("Authorization", "Bearer " + otherToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/v1/admin/models/" + alternateModelId + "/default")
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(Long.toString(alternateModelId)))
+                .andExpect(jsonPath("$.isDefault").value(true));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM model_configs WHERE tenant_id = ? AND is_default = TRUE",
+                Integer.class, tenantId)).isEqualTo(1);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/v1/admin/models/" + alternateModelId + "/default")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

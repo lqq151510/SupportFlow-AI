@@ -52,6 +52,9 @@ export const getAssignableMembers = () => adminRequest('/api/v1/admin/members', 
 export const createModelConfig = values => adminRequest('/api/v1/admin/models', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
 }, '模型配置保存失败');
+export const setDefaultModelConfig = modelConfigId => adminRequest(`/api/v1/admin/models/${modelConfigId}/default`, {
+  method: 'PATCH',
+}, '默认模型切换失败');
 export const probeModelConnection = ({baseUrl, apiKey}) => adminRequest('/api/v1/admin/models/probe', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({baseUrl, apiKey}),
 }, '模型连接探测失败');

@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import com.lqq.supportflow.conversation.GenerationRequestedEvent;
@@ -19,6 +20,9 @@ import com.lqq.supportflow.model.ModelChatService;
 import com.lqq.supportflow.model.ModelStreamEvent;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 class GenerateReplyServiceTest {
 
@@ -84,6 +88,28 @@ class GenerateReplyServiceTest {
         verify(events).appendIfAbsent(1L, 3L, "knowledge.insufficient", "{\"reason\":\"NO_TENANT_EVIDENCE\"}");
         verify(lifecycle).handoff(any(), eq("knowledge evidence is insufficient"));
         verify(models, org.mockito.Mockito.never()).stream(any(), any(), any());
+    }
+
+    @Test
+    void retriesOneServerFailureBeforeAnyToolExecutionAndResetsPartialOutput() {
+        GenerationLifecycleService lifecycle = mock(GenerationLifecycleService.class);
+        GenerationEventStore events = mock(GenerationEventStore.class);
+        ModelChatService models = mock(ModelChatService.class);
+        KnowledgeRetrievalService knowledge = mock(KnowledgeRetrievalService.class);
+        when(lifecycle.start(any())).thenReturn(true);
+        when(knowledge.retrieve(1L, "物流状态")).thenReturn(citations());
+        WebClientResponseException unavailable = WebClientResponseException.create(
+                HttpStatus.SERVICE_UNAVAILABLE.value(), "unavailable", HttpHeaders.EMPTY, new byte[0], null);
+        when(models.stream(eq(1L), any(), any()))
+                .thenReturn(Flux.concat(Flux.just(new ModelStreamEvent("text.delta", "{\"text\":\"旧\"}")), Flux.error(unavailable)))
+                .thenReturn(Flux.just(new ModelStreamEvent("text.delta", "{\"text\":\"新答案\"}"), new ModelStreamEvent("model.completed", "{}")));
+
+        new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), knowledge, new ObjectMapper())
+                .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "物流状态"));
+
+        verify(models, times(2)).stream(eq(1L), any(), any());
+        verify(events).append(1L, 3L, "generation.reset", "{\"reason\":\"MODEL_RETRY\"}");
+        verify(lifecycle).complete(any(), eq("新答案"), eq(0), eq(0), any(Long.class));
     }
 
     private java.util.List<RetrievedCitation> citations() { return java.util.List.of(new RetrievedCitation(8L, 9L, 10L, "订单规则", 0.9, 1)); }
