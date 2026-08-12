@@ -20,13 +20,13 @@ public class UploadKnowledgeDocumentService {
     private final DocumentTextExtractor extractor;
     private final RegisterKnowledgeDocumentService registration;
     private final KnowledgeDocumentPort documents;
-    private final IndexKnowledgeDocumentService indexing;
+    private final KnowledgeIndexingFailureHandler indexing;
     private final KnowledgeFilePolicy filePolicy;
 
     public UploadKnowledgeDocumentService(KnowledgeObjectStorage storage, DocumentTextExtractor extractor,
                                           RegisterKnowledgeDocumentService registration,
                                           KnowledgeDocumentPort documents,
-                                          IndexKnowledgeDocumentService indexing,
+                                          KnowledgeIndexingFailureHandler indexing,
                                           KnowledgeFilePolicy filePolicy) {
         this.storage = storage;
         this.extractor = extractor;
@@ -52,11 +52,7 @@ public class UploadKnowledgeDocumentService {
             KnowledgeDocument document = registration.registerExtracted(
                     tenantId, knowledgeBaseId, file.getOriginalFilename(), hash, text);
             documents.attachObject(tenantId, document.id(), stored.objectKey(), type);
-            try {
-                return indexing.index(tenantId, knowledgeBaseId, document.id());
-            } catch (RuntimeException exception) {
-                return documents.markFailed(tenantId, document.id(), "INDEXING_FAILED");
-            }
+            return indexing.index(tenantId, knowledgeBaseId, document.id());
         } catch (IOException exception) {
             throw new IllegalArgumentException("cannot read uploaded document", exception);
         }

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.lqq.supportflow.model.domain.EmbeddingModelConfig;
+import com.lqq.supportflow.model.MissingModelConfigurationException;
 import com.lqq.supportflow.model.domain.EmbeddingRequest;
 import com.lqq.supportflow.model.domain.ModelConfigPort;
 import com.lqq.supportflow.model.domain.ModelSecretPort;
@@ -49,7 +50,7 @@ class OpenAiCompatibleEmbeddingGatewayHttpTest {
         ModelConfigPort configs = mock(ModelConfigPort.class);
         OpenAiCompatibleEmbeddingGateway absent = gateway(null, Optional.empty(), configs);
         assertThatThrownBy(() -> absent.embedBatch(new EmbeddingRequest(7L, List.of("one"))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(MissingModelConfigurationException.class)
                 .hasMessage("default OpenAI-compatible embedding model is not configured");
 
         assertInvalidResponse("{}", "embedding response is invalid");

@@ -7,7 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.lqq.supportflow.knowledge.application.IndexKnowledgeDocumentService;
+import com.lqq.supportflow.knowledge.application.KnowledgeIndexingFailureHandler;
 import com.lqq.supportflow.knowledge.application.KnowledgeFilePolicy;
 import com.lqq.supportflow.knowledge.application.RegisterKnowledgeDocumentService;
 import com.lqq.supportflow.knowledge.application.UploadKnowledgeDocumentService;
@@ -28,7 +28,7 @@ class UploadKnowledgeDocumentServiceTest {
         DocumentTextExtractor extractor = mock(DocumentTextExtractor.class);
         RegisterKnowledgeDocumentService registration = mock(RegisterKnowledgeDocumentService.class);
         KnowledgeDocumentPort documents = mock(KnowledgeDocumentPort.class);
-        IndexKnowledgeDocumentService indexing = mock(IndexKnowledgeDocumentService.class);
+        KnowledgeIndexingFailureHandler indexing = mock(KnowledgeIndexingFailureHandler.class);
         byte[] content = "# Refund policy".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         when(storage.put(any(), any(), any(), any(), any(), any(), anyLong()))
                 .thenReturn(new StoredKnowledgeObject("tenants/7/object", content.length, "text/markdown"));

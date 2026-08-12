@@ -7,6 +7,7 @@ import com.lqq.supportflow.model.domain.ModelConfigPort;
 import com.lqq.supportflow.model.domain.ModelEvent;
 import com.lqq.supportflow.model.domain.ModelProtocol;
 import com.lqq.supportflow.model.domain.ModelSecretPort;
+import com.lqq.supportflow.model.MissingModelConfigurationException;
 import java.util.List;
 import java.util.Map;
 import java.time.Duration;
@@ -44,7 +45,7 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
     @Override
     public Flux<ModelEvent> stream(ChatModelRequest request) {
         ChatModelConfig config = configs.findDefaultChat(request.tenantId())
-                .orElseThrow(() -> new IllegalArgumentException("default chat model is not configured"));
+                .orElseThrow(() -> new MissingModelConfigurationException("chat"));
         return config.protocol() == ModelProtocol.OPENAI_COMPATIBLE ? openAi(config, request) : anthropic(config, request);
     }
 
