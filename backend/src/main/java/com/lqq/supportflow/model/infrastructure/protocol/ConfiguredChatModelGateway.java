@@ -10,6 +10,7 @@ import com.lqq.supportflow.model.domain.ModelSecretPort;
 import java.util.List;
 import java.util.Map;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,6 +30,7 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
     private final AnthropicMessagesEventNormalizer anthropic;
     private final Duration timeout;
 
+    @Autowired
     public ConfiguredChatModelGateway(ModelConfigPort configs, ModelSecretPort secrets, WebClient.Builder builder,
             OpenAiCompatibleEventNormalizer openAi, AnthropicMessagesEventNormalizer anthropic) {
         this(configs, secrets, builder, openAi, anthropic, Duration.ofSeconds(30));
