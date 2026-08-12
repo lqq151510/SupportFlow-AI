@@ -20,8 +20,11 @@ class ModelSecurityTest {
     @Test void rejectsNonPublicModelUrls() {
         ModelBaseUrlValidator validator = new ModelBaseUrlValidator();
         validator.validate("https://api.example.com/v1");
-        assertThatThrownBy(() -> validator.validate("http://api.example.com")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> validator.validate("https://127.0.0.1/v1")).isInstanceOf(IllegalArgumentException.class);
+        for (String url : java.util.List.of(
+                "http://api.example.com", "https:/missing-host", "https://localhost", "https://[::1]",
+                "https://127.0.0.1/v1", "https://10.0.0.1", "https://192.168.1.1", "https://172.16.0.1", "https://172.31.255.1")) {
+            assertThatThrownBy(() -> validator.validate(url)).isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Test void identifiesEveryExplicitHumanHandoffSignalWithoutCaseSensitivity() {

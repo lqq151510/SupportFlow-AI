@@ -16,7 +16,7 @@ public class ModelBaseUrlValidator implements ModelUrlPolicy {
     }
 
     private boolean isPrivate(String host) {
-        return host.equalsIgnoreCase("localhost") || host.equals("::1") || host.startsWith("127.")
+        return host.equalsIgnoreCase("localhost") || host.equals("::1") || host.equals("[::1]") || host.startsWith("127.")
                 || host.startsWith("10.") || host.startsWith("192.168.") || host.matches("172\\.(1[6-9]|2[0-9]|3[0-1])\\..*");
     }
 }
