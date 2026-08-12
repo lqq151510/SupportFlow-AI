@@ -511,12 +511,12 @@ SSE 事件固定为：
 
 ### 第 8 周：质量、压测和简历交付
 
-- Backend JaCoCo 行覆盖率达到 85%，分支覆盖率达到 75%。
-- 使用 Testcontainers 完成 MySQL、Redis、Elasticsearch 和 RocketMQ 集成测试。
-- 使用 k6 对 Mock Model 场景进行 100 个并发 SSE 会话压测。
+- 已验收：Backend JaCoCo 行覆盖率达到 89.99%，分支覆盖率达到 75.60%（2026-08-12，`mvn -B test`）。
+- 已验收：Testcontainers 覆盖 MySQL 和 Redis；Elasticsearch 与 RocketMQ 的真实容器测试待 Docker Desktop 完成对应镜像拉取后补齐，不能以 HTTP mock 替代该验收。
+- 待验收：使用 k6 对 Mock Model 场景进行 100 个并发 SSE 会话压测。
 - 非模型普通 API 在 100 RPS 下达到 P95 小于 300ms。
 - 100 个并发 SSE 的连接建立 P95 小于 1 秒，错误率小于 1%。
-- 补齐 OpenAPI、架构图、ER 图、演示数据、一键启动、故障演练和简历描述。
+- 已补齐 OpenAPI、架构图、ER 图、演示数据、Docker Compose 一键启动说明和故障演练文档；真实全栈 Compose 启动仍依赖 Elasticsearch、RocketMQ、Node/Nginx 镜像拉取完成。
 - 打 Git 标签 `v1.0.0-demo`，保留完整测试报告和演示录像。
 
 ## 最终验收场景
