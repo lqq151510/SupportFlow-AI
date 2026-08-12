@@ -35,6 +35,7 @@ class ModelSecurityTest {
 
     @Test void rejectsInvalidCiphertextAndMasterKeyMaterial() {
         ApiKeyCipher cipher = new ApiKeyCipher();
+        String differentKey = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU2Nzg5";
 
         assertThatThrownBy(() -> cipher.encrypt("sk-secret", "not-base64"))
                 .isInstanceOf(IllegalStateException.class)
@@ -45,5 +46,11 @@ class ModelSecurityTest {
         assertThatThrownBy(() -> cipher.encrypt("sk-secret", "MTIz"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("cannot encrypt model API key");
+        assertThatThrownBy(() -> cipher.decrypt(cipher.encrypt("sk-secret", MASTER_KEY), differentKey))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("cannot decrypt model API key");
+        assertThatThrownBy(() -> cipher.decrypt("AA==", "MTIz"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("cannot decrypt model API key");
     }
 }
