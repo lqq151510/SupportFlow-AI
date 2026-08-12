@@ -36,6 +36,7 @@ npm run dev
 
 ```bash
 SUPPORTFLOW_API_BASE_URL=http://localhost:8080 \
+VITE_API_BASE_URL=http://localhost:8080 \
 PLAYWRIGHT_BASE_URL=http://localhost:5173 \
 npm --prefix frontend run test:e2e
 ```
@@ -61,6 +62,6 @@ docker compose --profile app up --build
 ./scripts/verify-delivery.sh
 ```
 
-故障演练、压测和演示步骤见 [演示与故障验证手册](docs/demo-runbook.md)，最终简历表述见 [简历项目描述](docs/resume-project-description.md)。
+故障演练、压测和演示步骤见 [演示与故障验证手册](docs/demo-runbook.md)，验收证据见[测试报告](docs/reports/testing.md)与[性能报告](docs/reports/performance.md)，最终简历表述见 [简历项目描述](docs/resume-project-description.md)。
 
 架构与接口说明见 [docs/architecture.md](docs/architecture.md)、[ER 图](docs/er-diagram.md)、[OpenAPI 3.1](docs/openapi.yaml)、[身份契约](docs/contracts/authentication.md)、[幂等契约](docs/contracts/idempotency.md) 和 [docs/adr](docs/adr)。
