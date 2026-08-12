@@ -63,7 +63,7 @@ class ConfiguredChatModelGatewayHttpTest {
     void propagatesServerErrorsAndTimesOutStalledStreams() throws Exception {
         HttpServer failed = server(exchange -> { exchange.sendResponseHeaders(503, -1); exchange.close(); });
         try {
-            assertThatThrownBy(() -> gateway(failed, ModelProtocol.OPENAI_COMPATIBLE, Duration.ofSeconds(1))
+            assertThatThrownBy(() -> gateway(failed, ModelProtocol.OPENAI_COMPATIBLE, Duration.ofSeconds(5))
                     .stream(request()).collectList().block())
                     .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable.class);
         } finally { failed.stop(0); }

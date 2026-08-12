@@ -20,6 +20,7 @@ mvn -B -f backend/pom.xml clean verify
 - 架构：Spring Modulith 边界与 ArchUnit 规则通过
 - JaCoCo 行覆盖率：93.65%（1268/1354），`verify` 门禁要求至少 85%
 - JaCoCo 分支覆盖率：75.38%（499/662），`verify` 门禁要求至少 75%
+- 模型 HTTP/SSE：OpenAI-compatible、Anthropic、503 与流超时测试通过；WebClient 使用 Reactor Netty，超时取消不再产生 `onErrorDropped` 伪错误
 - 结果：通过
 
 默认 profile 不启用 Redis Stream，因此关闭 Redis 健康指示器；Docker profile 显式重新启用。无 Redis 的默认启动下 `/actuator/health` 返回 `UP`，避免测试和 E2E 把未启用的外部依赖误判为应用故障。
