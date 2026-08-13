@@ -21,6 +21,7 @@ mvn -B -f backend/pom.xml clean verify
 - JaCoCo 行覆盖率：93.65%（1268/1354），`verify` 门禁要求至少 85%
 - JaCoCo 分支覆盖率：75.38%（499/662），`verify` 门禁要求至少 75%
 - 模型 HTTP/SSE：OpenAI-compatible、Anthropic、503 与流超时测试通过；WebClient 使用 Reactor Netty，超时取消不再产生 `onErrorDropped` 伪错误
+- Java 21+ 测试运行时：Surefire 通过 Maven 依赖属性显式加载 Mockito Agent，与 JaCoCo Agent 同时启用；另以 `-Djacoco.skip=true` 验证单独运行 Mockito Agent，均无动态自挂载警告
 - 结果：通过
 
 默认 profile 不启用 Redis Stream，因此关闭 Redis 健康指示器；Docker profile 显式重新启用。无 Redis 的默认启动下 `/actuator/health` 返回 `UP`，避免测试和 E2E 把未启用的外部依赖误判为应用故障。
