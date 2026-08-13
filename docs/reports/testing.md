@@ -59,7 +59,8 @@ npm --prefix frontend run test:e2e -- customer-agent-handoff.spec.ts
 
 ## 安全与供应链
 
-- Gitleaks 8.30.1：扫描 124 个 Git 提交，0 泄漏
+- Gitleaks 8.30.1：扫描完整 Git 历史，0 泄漏
+- Gitleaks Action v3：CI 运行时升级至 Node.js 24，并固定使用 Gitleaks 8.30.1；扫描配置与行为保持不变
 - `npm audit --omit=dev --audit-level=high`：生产依赖 0 漏洞
 - GitHub Actions：后端、前端、Dependency Review、Gitleaks、CodeQL 门禁已配置
 - CI YAML：通过 `Psych.parse_file` 纯语法解析

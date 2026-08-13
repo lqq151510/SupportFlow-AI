@@ -516,7 +516,8 @@ SSE 事件固定为：
 - 已验收：完整 Docker Compose 启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL 23 个 Flyway 迁移全部成功、RocketMQ Topic 路由可用。
 - 已验收：k6 Mock Model 场景完成 100 个并发 SSE 会话压测，建连 P95 为 46.11ms、错误率 0%。
 - 已验收：非模型普通 API 在 100 RPS 下 P95 为 3.84ms、错误率 0%。
-- 已验收：Gitleaks 扫描 124 个提交无泄漏，npm 生产依赖审计 0 漏洞，Dependency Review 与 CodeQL 已接入 CI。
+- 已验收：Gitleaks 扫描完整 Git 历史无泄漏，npm 生产依赖审计 0 漏洞，Dependency Review 与 CodeQL 已接入 CI。
+- 已升级：CI 密钥扫描使用 Gitleaks Action v3（Node.js 24）并固定 Gitleaks 8.30.1，消除 Node.js 20 弃用风险且保持原有扫描输入、输出和行为。
 - 已补齐 OpenAPI、架构图、ER 图、演示数据、测试/性能报告、故障演练脚本、简历项目描述和 180.08 秒演示录像。
 - 已验收：Redis 与 RocketMQ Broker 故障演练均确认停机路径并自动恢复，恢复后后端健康仍为 `UP`；最终门禁通过后创建 Git 标签 `v1.0.0-demo`。
 
