@@ -9,9 +9,13 @@
     "preview": "vite preview",
     "test:unit": "vitest run",
     "test:e2e": "playwright test --grep-invert @demo",
-    "test:demo": "playwright test --grep @demo --workers=1"
+    "test:demo": "playwright test --grep @demo --workers=1",
+    "tauri": "tauri",
+    "build:app": "tauri build",
+    "build:dmg": "tauri build --bundles dmg"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
     "@vitejs/plugin-react": "latest",
     "lucide-react": "^1.30.0",
     "react": "^19.1.0",
@@ -20,6 +24,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.1.0",

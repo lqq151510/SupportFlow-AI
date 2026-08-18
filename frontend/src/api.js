@@ -1,5 +1,6 @@
+const isDesktop = typeof window !== 'undefined' && (Boolean(window.__TAURI_INTERNALS__) || Boolean(window.__TAURI__));
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
-  || (import.meta.env.PROD ? '' : 'http://localhost:8080');
+  || (isDesktop ? 'http://localhost:8080' : (import.meta.env.PROD ? '' : 'http://localhost:8080'));
 
 function accessToken(message) {
   const token = localStorage.getItem('supportflow.accessToken');

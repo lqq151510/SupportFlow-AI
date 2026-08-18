@@ -6,6 +6,7 @@ backend/target/
 /build/
 frontend/node_modules/
 frontend/dist/
+frontend/src-tauri/target/
 frontend/test-results/
 frontend/playwright-report/
 
