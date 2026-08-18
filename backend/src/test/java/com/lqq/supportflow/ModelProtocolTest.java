@@ -54,6 +54,43 @@ class ModelProtocolTest {
                 new ModelEvent.ToolCallStarted("tool-1", "refund.check"),
                 new ModelEvent.ToolCallArgumentsDelta("tool-1", "{\"orderNo\":\"DEMO-001\"}"),
                 new ModelEvent.ModelFailed("PROTOCOL_ERROR", "invalid OpenAI-compatible event"),
+                new ModelEvent.ToolCallCompleted("tool-1"),
+                new ModelEvent.ModelCompleted());
+    }
+
+    @Test
+    void normalizesOpenAiMultiChunkStreamingToolCallsWithoutIdInSubsequentChunks() {
+        var normalizer = new OpenAiCompatibleEventNormalizer(json);
+        List<ModelEvent> events = normalizer.normalize(Flux.just(
+                        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-abc\",\"function\":{\"name\":\"order.lookup\",\"arguments\":\"\"}}]}}]}",
+                        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"orderNo\\\":\\\"\"}}]}}]}",
+                        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"SO-123\\\"}\"}}]}}]}",
+                        "{\"choices\":[{\"finish_reason\":\"tool_calls\"}]}",
+                        "[DONE]"))
+                .collectList().block();
+
+        assertThat(events).containsExactly(
+                new ModelEvent.ToolCallStarted("call-abc", "order.lookup"),
+                new ModelEvent.ToolCallArgumentsDelta("call-abc", "{\"orderNo\":\""),
+                new ModelEvent.ToolCallArgumentsDelta("call-abc", "SO-123\"}"),
+                new ModelEvent.ToolCallCompleted("call-abc"),
+                new ModelEvent.ModelCompleted());
+    }
+
+    @Test
+    void normalizesAnthropicToolUseWithMappedIndexToCallId() {
+        var normalizer = new AnthropicMessagesEventNormalizer(json);
+        List<ModelEvent> events = normalizer.normalize(Flux.just(
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("content_block_start", "{\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_123\",\"name\":\"order.lookup\"}}"),
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("content_block_delta", "{\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"orderNo\\\":\\\"SO-123\\\"}\"}}"),
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("content_block_stop", "{\"index\":0}"),
+                        new AnthropicMessagesEventNormalizer.AnthropicSseFrame("message_stop", "{}")))
+                .collectList().block();
+
+        assertThat(events).containsExactly(
+                new ModelEvent.ToolCallStarted("toolu_123", "order.lookup"),
+                new ModelEvent.ToolCallArgumentsDelta("toolu_123", "{\"orderNo\":\"SO-123\"}"),
+                new ModelEvent.ToolCallCompleted("toolu_123"),
                 new ModelEvent.ModelCompleted());
     }
 

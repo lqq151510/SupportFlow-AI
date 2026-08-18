@@ -112,5 +112,42 @@ class GenerateReplyServiceTest {
         verify(lifecycle).complete(any(), eq("新答案"), eq(0), eq(0), any(Long.class));
     }
 
+    @Test
+    void injectsConversationHistoryAndSummarizesReadOnlyToolResult() {
+        GenerationLifecycleService lifecycle = mock(GenerationLifecycleService.class);
+        GenerationEventStore events = mock(GenerationEventStore.class);
+        ModelChatService models = mock(ModelChatService.class);
+        ToolExecutionService tools = mock(ToolExecutionService.class);
+        KnowledgeRetrievalService knowledge = mock(KnowledgeRetrievalService.class);
+        com.lqq.supportflow.conversation.domain.ConversationPort conversations = mock(com.lqq.supportflow.conversation.domain.ConversationPort.class);
+
+        when(lifecycle.start(any())).thenReturn(true);
+        when(knowledge.retrieve(1L, "查询订单状态")).thenReturn(citations());
+        when(conversations.findRecentMessages(1L, 2L, 8)).thenReturn(java.util.List.of(
+                new com.lqq.supportflow.conversation.domain.ConversationMessage("CUSTOMER", "你好"),
+                new com.lqq.supportflow.conversation.domain.ConversationMessage("AI", "您好，请问有什么可以帮您？")
+        ));
+        when(tools.execute(eq(1L), eq(4L), eq("order.lookup"), any()))
+                .thenReturn(new ToolExecutionResult("order.lookup", "COMPLETED", java.util.Map.of("orderNo", "DEMO-001", "status", "SHIPPED")));
+
+        when(models.stream(eq(1L), any(), any()))
+                .thenReturn(Flux.just(
+                        new ModelStreamEvent("tool.started", "{\"callId\":\"call-1\",\"name\":\"order.lookup\"}"),
+                        new ModelStreamEvent("tool.arguments.delta", "{\"callId\":\"call-1\",\"argumentsDelta\":\"{\\\"orderNo\\\":\\\"DEMO-001\\\"}\"}"),
+                        new ModelStreamEvent("tool.completed", "{\"callId\":\"call-1\"}"),
+                        new ModelStreamEvent("model.completed", "{}")))
+                .thenReturn(Flux.just(
+                        new ModelStreamEvent("text.delta", "{\"text\":\"您的订单 DEMO-001 已发货。\"}"),
+                        new ModelStreamEvent("usage.reported", "{\"inputTokens\":15,\"outputTokens\":10}"),
+                        new ModelStreamEvent("model.completed", "{}")));
+
+        new GenerateReplyService(lifecycle, events, models, tools, knowledge, conversations, new ObjectMapper())
+                .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "查询订单状态"));
+
+        verify(conversations).findRecentMessages(1L, 2L, 8);
+        verify(tools).execute(eq(1L), eq(4L), eq("order.lookup"), eq(java.util.Map.of("orderNo", "DEMO-001")));
+        verify(lifecycle).complete(any(), eq("您的订单 DEMO-001 已发货。"), any(Integer.class), any(Integer.class), any(Long.class));
+    }
+
     private java.util.List<RetrievedCitation> citations() { return java.util.List.of(new RetrievedCitation(8L, 9L, 10L, "订单规则", 0.9, 1)); }
 }

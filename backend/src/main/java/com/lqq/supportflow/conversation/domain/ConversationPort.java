@@ -1,2 +1,14 @@
 package com.lqq.supportflow.conversation.domain;
-public interface ConversationPort { Conversation create(Long tenantId,Long customerId); boolean belongsTo(Long tenantId,Long customerId,Long conversationId); boolean ownsGeneration(Long tenantId,Long customerId,Long generationId); MessageSubmission submit(Long tenantId,Long conversationId,String content,String idempotencyKey); boolean startGeneration(Long tenantId,Long conversationId,Long generationId); Generation completeGeneration(Long tenantId,Long conversationId,Long generationId,String response,int inputTokens,int outputTokens,long latencyMs); Generation requireHandoff(Long tenantId,Long conversationId,Long generationId); }
+
+import java.util.List;
+
+public interface ConversationPort {
+    Conversation create(Long tenantId, Long customerId);
+    boolean belongsTo(Long tenantId, Long customerId, Long conversationId);
+    boolean ownsGeneration(Long tenantId, Long customerId, Long generationId);
+    MessageSubmission submit(Long tenantId, Long conversationId, String content, String idempotencyKey);
+    boolean startGeneration(Long tenantId, Long conversationId, Long generationId);
+    Generation completeGeneration(Long tenantId, Long conversationId, Long generationId, String response, int inputTokens, int outputTokens, long latencyMs);
+    Generation requireHandoff(Long tenantId, Long conversationId, Long generationId);
+    List<ConversationMessage> findRecentMessages(Long tenantId, Long conversationId, int limit);
+}

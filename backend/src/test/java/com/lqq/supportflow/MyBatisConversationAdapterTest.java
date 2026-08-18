@@ -92,6 +92,28 @@ class MyBatisConversationAdapterTest {
                 .hasMessage("generation does not belong to tenant");
     }
 
+    @Test
+    void findsRecentMessagesInChronologicalOrder() {
+        ConversationMapper conversations = mock(ConversationMapper.class);
+        ConversationMessageMapper messages = mock(ConversationMessageMapper.class);
+        GenerationMapper generations = mock(GenerationMapper.class);
+
+        ConversationMessageEntity m1 = new ConversationMessageEntity();
+        m1.senderType = "AI";
+        m1.content = "response 2";
+        ConversationMessageEntity m2 = new ConversationMessageEntity();
+        m2.senderType = "CUSTOMER";
+        m2.content = "question 1";
+
+        when(messages.selectList(any())).thenReturn(java.util.List.of(m1, m2));
+        MyBatisConversationAdapter adapter = adapter(conversations, messages, generations);
+
+        var recent = adapter.findRecentMessages(7L, 10L, 5);
+        assertThat(recent).hasSize(2);
+        assertThat(recent.get(0).content()).isEqualTo("question 1");
+        assertThat(recent.get(1).content()).isEqualTo("response 2");
+    }
+
     private MyBatisConversationAdapter adapter(ConversationMapper conversations, ConversationMessageMapper messages, GenerationMapper generations) {
         return new MyBatisConversationAdapter(conversations, messages, generations);
     }
