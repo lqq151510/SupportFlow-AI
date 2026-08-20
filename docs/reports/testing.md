@@ -24,6 +24,12 @@ mvn -B -f backend/pom.xml clean verify
 - Java 21+ 测试运行时：Surefire 通过 Maven 依赖属性显式加载 Mockito Agent，与 JaCoCo Agent 同时启用；另以 `-Djacoco.skip=true` 验证单独运行 Mockito Agent，均无动态自挂载警告
 - 结果：通过
 
+复验（2026-08-20，macOS arm64、Java 21.0.10、Docker Desktop 29.7.2）：`mvn -B -f backend/pom.xml verify` 通过，120 项测试无失败、错误或跳过；JaCoCo 行覆盖率为 93.56%（1526/1631），分支覆盖率为 75.90%（551/726），继续满足 85%/75% 门禁。Elasticsearch 容器在 8.31 秒内启动，RocketMQ 容器场景在 19.88 秒内通过。
+
+全量交付复验（2026-08-20）：`./scripts/verify-delivery.sh` 与 CI 地址组合下的 Playwright 主流程均通过；前端 Vitest 4/4、TypeScript/Vite 生产构建、Compose 配置解析、两条 k6 脚本解析均通过，Playwright 的管理端与消费者到坐席闭环为 2/2。浏览器验收必须使用 `http://localhost:5173`，与后端 CORS 默认允许源保持一致。
+
+完整 Compose 复验（2026-08-20）：以临时 JWT/模型主密钥启动 `app` profile，并因宿主机 9000/9001 已被其他服务占用而仅对本次运行使用 MinIO `19000/19001` 映射；MySQL、Redis、MinIO、RocketMQ NameServer/Broker、后端与前端均启动，后端 `/actuator/health` 返回 `UP`，前端返回 HTTP 200，Redis `PONG`，RocketMQ `support-domain-events` 路由可见。单节点 Elasticsearch 的 `supportflow-knowledge` 默认副本无法分配时，首次验收将该索引副本数临时调为 0 后集群为 `green`（100% active shards）；随后在 Compose 中加入 Elasticsearch 初始化服务，安装 `supportflow-*` 副本数为 0 的索引模板。真实模板读取与 simulate-index 验证均确认未来索引会继承该设置。验收后执行 `docker compose --profile app down`，未删除任何命名卷。
+
 默认 profile 不启用 Redis Stream，因此关闭 Redis 健康指示器；Docker profile 显式重新启用。无 Redis 的默认启动下 `/actuator/health` 返回 `UP`，避免测试和 E2E 把未启用的外部依赖误判为应用故障。
 
 ## 前端质量门禁
@@ -73,6 +79,7 @@ npm --prefix frontend run test:e2e -- customer-agent-handoff.spec.ts
 ## Docker 与真实中间件
 
 - Testcontainers：MySQL + Redis、Elasticsearch 8.17.3、RocketMQ 5.3.2 共 3/3 通过；RocketMQ 场景同时验证普通事件即时消费与 SLA 绝对截止时间延时投递
+- 复验（2026-08-20，macOS arm64、Docker Desktop 29.7.2、Java 21.0.10）：`mvn -B test '-Dtest=ElasticsearchContainerIntegrationTest,RocketMqContainerIntegrationTest'` 通过；Elasticsearch 1/1（13.06 秒），RocketMQ 1/1（23.37 秒）。Docker daemon 可访问，两个测试均实际启动对应容器；未发现需要调整 `backend/pom.xml` 或测试实现的问题。
 - Compose：MySQL、Redis、Elasticsearch、MinIO、RocketMQ NameServer/Broker、后端与前端完整启动
 - 健康证据：后端 `UP`、前端 HTTP 200、Elasticsearch green、Redis PONG、MySQL 23 个迁移成功、RocketMQ `support-domain-events` 路由可见
 - 故障恢复：Redis 与 RocketMQ Broker 停机路径均确认并自动恢复，恢复后后端健康仍为 `UP`

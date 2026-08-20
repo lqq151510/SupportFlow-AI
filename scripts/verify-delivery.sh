@@ -5,6 +5,10 @@ REPOSITORY_ROOT=${0:A:h:h}
 
 cd "$REPOSITORY_ROOT"
 git diff --check
+if ! docker info >/dev/null 2>&1; then
+  print -u2 "Docker daemon is required: Testcontainers tests must not be silently skipped."
+  exit 1
+fi
 mvn -B -f backend/pom.xml verify
 npm --prefix frontend run test:unit
 npm --prefix frontend run build

@@ -46,6 +46,20 @@ services:
       timeout: 5s
       retries: 20
 
+  elasticsearch-init:
+    image: curlimages/curl:8.12.1
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command:
+      - sh
+      - -ec
+      - |
+        curl --fail --silent --show-error \
+          -X PUT http://elasticsearch:9200/_index_template/supportflow-single-node \
+          -H 'Content-Type: application/json' \
+          --data '{"index_patterns":["supportflow-*"],"priority":100,"template":{"settings":{"index.number_of_replicas":"0"}}}'
+
   minio:
     image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}
     command: server /data --console-address ":9001"
@@ -121,6 +135,8 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      elasticsearch-init:
+        condition: service_completed_successfully
       minio:
         condition: service_healthy
       rocketmq-broker:

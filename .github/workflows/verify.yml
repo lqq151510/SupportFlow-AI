@@ -21,6 +21,8 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: backend/pom.xml
+      - name: Confirm Docker is available for Testcontainers
+        run: docker info
       - run: mvn -B verify
 
   frontend:

@@ -31,9 +31,14 @@ SUPPORTFLOW_JWT_SECRET_BASE64='<at-least-32-byte-base64-secret>' docker compose 
 容器集成测试会分别启动隔离的 MySQL、Redis、Elasticsearch 和 RocketMQ，验证 SQL 连通性、Redis Stream 隔离、真实检索与真实消息生产消费：
 
 ```zsh
+docker info
 mvn -B -f backend/pom.xml \
   -Dtest=InfrastructureContainerIntegrationTest,ElasticsearchContainerIntegrationTest,RocketMqContainerIntegrationTest test
 ```
+
+`@Testcontainers(disabledWithoutDocker = true)` 只用于开发者不具备 Docker 时避免测试框架初始化失败，不能作为第 8 周容器验收的通过依据。交付脚本和 CI 均先执行 `docker info`；该命令失败时应修复 Docker daemon，而不是接受被跳过的测试。
+
+完整 Compose 已启动时，执行 `./scripts/verify-compose-runtime.sh` 验证后端 `UP`、前端 HTTP 200、Elasticsearch `green`、Redis `PONG` 与 RocketMQ Topic 路由。脚本只读检查，适合在演示前或故障恢复后重复执行。
 
 可恢复的基础设施故障演练必须显式确认目标服务。例如验证 Redis 中断并自动恢复：
 

@@ -9,10 +9,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -23,9 +26,12 @@ class ElasticsearchContainerIntegrationTest {
     static final ElasticsearchContainer elasticsearch = new ElasticsearchContainer(
             "docker.elastic.co/elasticsearch/elasticsearch:8.17.3")
             .withEnv("xpack.security.enabled", "false")
-            .withEnv("ES_JAVA_OPTS", "-Xms384m -Xmx384m");
+            .withEnv("ES_JAVA_OPTS", "-Xms384m -Xmx384m")
+            .waitingFor(Wait.forHttp("/").forStatusCode(200)
+                    .withStartupTimeout(Duration.ofMinutes(2)));
 
     @Test
+    @Timeout(value = 2, unit = java.util.concurrent.TimeUnit.MINUTES)
     void indexesAndSearchesRealElasticsearchWithoutCrossTenantResults() throws Exception {
         String endpoint = "http://" + elasticsearch.getHttpHostAddress();
         String indexName = "supportflow-knowledge-it";
@@ -72,7 +78,8 @@ class ElasticsearchContainerIntegrationTest {
                 .build();
         HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode())
-                .withFailMessage("Elasticsearch returned %s: %s", response.statusCode(), response.body())
+                .withFailMessage("Elasticsearch returned %s: %s%nContainer logs:%n%s",
+                        response.statusCode(), response.body(), elasticsearch.getLogs())
                 .isBetween(200, 299);
     }
 }

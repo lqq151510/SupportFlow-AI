@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import org.springframework.context.ApplicationEventPublisher;
 import org.testcontainers.containers.GenericContainer;
@@ -30,6 +31,7 @@ class RocketMqContainerIntegrationTest {
     private static final DockerImageName ROCKETMQ = DockerImageName.parse("apache/rocketmq:5.3.2");
 
     @Test
+    @Timeout(value = 5, unit = TimeUnit.MINUTES)
     void publishesAndConsumesRealRocketMqEventsWithTenantContextAndDelay() throws Exception {
         int brokerPort = availablePort();
         String brokerConfig = """
@@ -70,7 +72,7 @@ class RocketMqContainerIntegrationTest {
                     "-t", topic, "-r", "2", "-w", "2");
             assertThat(topicCreation.getExitCode()).as(topicCreation.getStderr()).isZero();
             assertThat(topicCreation.getStdout()).as(topicCreation.getStderr()).contains("create topic to");
-            awaitTopicRoute(nameserverAddress, topic);
+            awaitTopicRoute(nameserverAddress, topic, broker, nameserver);
             CountDownLatch consumed = new CountDownLatch(1);
             CountDownLatch delayed = new CountDownLatch(1);
             AtomicReference<PublishedOutboxEvent> received = new AtomicReference<>();
@@ -102,7 +104,9 @@ class RocketMqContainerIntegrationTest {
                 producer.publish(new OutboxEvent(
                         41L, 73L, "approval.approved", "approval", "91", "{\"approved\":true}", 0, Instant.now()));
 
-                assertThat(consumed.await(30, TimeUnit.SECONDS)).isTrue();
+                assertThat(consumed.await(30, TimeUnit.SECONDS))
+                        .withFailMessage("Did not consume the normal event within 30 seconds.%n%s", diagnostics(broker, nameserver))
+                        .isTrue();
                 assertThat(received.get()).isEqualTo(new PublishedOutboxEvent(
                         41L, 73L, "approval.approved", "{\"approved\":true}"));
                 assertThat(tenantDuringPublish.get()).isEqualTo(73L);
@@ -114,7 +118,9 @@ class RocketMqContainerIntegrationTest {
                         "{\"ticketId\":\"92\",\"dueAt\":\"" + dueAt + "\"}", 0, Instant.now()));
 
                 assertThat(delayed.await(2, TimeUnit.SECONDS)).isFalse();
-                assertThat(delayed.await(20, TimeUnit.SECONDS)).isTrue();
+                assertThat(delayed.await(20, TimeUnit.SECONDS))
+                        .withFailMessage("Did not consume the SLA event after its deadline.%n%s", diagnostics(broker, nameserver))
+                        .isTrue();
                 assertThat(delayedEvent.get()).isEqualTo(new PublishedOutboxEvent(
                         42L, 73L, "ticket.sla.resolution",
                         "{\"ticketId\":\"92\",\"dueAt\":\"" + dueAt + "\"}"));
@@ -132,7 +138,8 @@ class RocketMqContainerIntegrationTest {
         }
     }
 
-    private void awaitTopicRoute(String nameserverAddress, String topic) throws Exception {
+    private void awaitTopicRoute(String nameserverAddress, String topic, GenericContainer<?> broker,
+                                 GenericContainer<?> nameserver) throws Exception {
         DefaultMQProducer probe = new DefaultMQProducer("supportflow-it-route-probe-" + System.nanoTime());
         probe.setNamesrvAddr(nameserverAddress);
         probe.start();
@@ -147,9 +154,14 @@ class RocketMqContainerIntegrationTest {
                 }
                 Thread.sleep(500);
             }
-            throw new IllegalStateException("RocketMQ topic route did not become visible: " + topic, lastFailure);
+            throw new IllegalStateException("RocketMQ topic route did not become visible: " + topic + "\n"
+                    + diagnostics(broker, nameserver), lastFailure);
         } finally {
             probe.shutdown();
         }
+    }
+
+    private String diagnostics(GenericContainer<?> broker, GenericContainer<?> nameserver) {
+        return "Broker logs:\n" + broker.getLogs() + "\nNameServer logs:\n" + nameserver.getLogs();
     }
 }
