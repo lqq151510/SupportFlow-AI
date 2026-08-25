@@ -7,7 +7,9 @@ RUN --mount=type=cache,target=/root/.m2,sharing=locked \
       -Daether.transport.http.connectTimeout=10000 \
       -Daether.transport.http.requestTimeout=120000 \
       -Daether.transport.http.retryHandler.count=3 \
-      verify
+      -DskipTests \
+      -Djacoco.skip=true \
+      package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

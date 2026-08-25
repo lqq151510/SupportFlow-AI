@@ -23,6 +23,6 @@ curl --fail --silent --output /dev/null http://localhost:5173/
 curl --fail --silent 'http://localhost:9200/_cluster/health?wait_for_status=green&timeout=20s' | rg -q '"status":"green"'
 docker compose exec -T redis redis-cli ping | rg -qx 'PONG'
 docker compose exec -T rocketmq-broker sh mqadmin topicRoute \
-  -n rocketmq-namesrv:9876 -t support-domain-events | rg -q 'support-domain-events'
+  -n rocketmq-namesrv:9876 -t support-domain-events | rg -q '"brokerDatas"'
 
 echo "SupportFlow AI Compose runtime checks passed."
