@@ -2,6 +2,14 @@ const isDesktop = typeof window !== 'undefined' && (Boolean(window.__TAURI_INTER
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   || (isDesktop ? 'http://localhost:8080' : (import.meta.env.PROD ? '' : 'http://localhost:8080'));
 
+export async function getBackendHealth() {
+  const response = await fetch(`${API_BASE_URL}/actuator/health`);
+  if (!response.ok) throw new Error(`本地服务健康检查失败 (${response.status})`);
+  const health = await response.json();
+  if (health.status !== 'UP') throw new Error('本地服务尚未就绪');
+  return health;
+}
+
 function accessToken(message) {
   const token = localStorage.getItem('supportflow.accessToken');
   if (!token) throw new Error(message);
@@ -54,12 +62,23 @@ export const getAssignableMembers = () => adminRequest('/api/v1/admin/members', 
 export const createModelConfig = values => adminRequest('/api/v1/admin/models', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
 }, '模型配置保存失败');
+export const updateModelConfig = (modelConfigId, values) => adminRequest(`/api/v1/admin/models/${modelConfigId}`, {
+  method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
+}, '模型配置更新失败');
 export const setDefaultModelConfig = modelConfigId => adminRequest(`/api/v1/admin/models/${modelConfigId}/default`, {
   method: 'PATCH',
 }, '默认模型切换失败');
+export const setKnowledgeDefaultModelConfig = modelConfigId => adminRequest(`/api/v1/admin/models/${modelConfigId}/knowledge-default`, {
+  method: 'PATCH',
+}, '知识整理模型切换失败');
 export const probeModelConnection = ({baseUrl, apiKey}) => adminRequest('/api/v1/admin/models/probe', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({baseUrl, apiKey}),
 }, '模型连接探测失败');
+export const getModelUsageOverview = () => adminRequest('/api/v1/admin/models/usage/overview', {}, '模型用量加载失败');
+export const getRecentModelUsages = (limit = 15) => adminRequest(`/api/v1/admin/models/usage/recent?limit=${limit}`, {}, '调用明细加载失败');
+export const organizeKnowledgeDocument = (knowledgeBaseId, documentId) => adminRequest(`/api/v1/admin/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/organize`, {
+  method: 'POST',
+}, '文档智能整理失败');
 
 async function ticketRequest(ticketId, suffix, options = {}) {
   const token = localStorage.getItem('supportflow.accessToken');
@@ -119,13 +138,37 @@ export async function login({ tenantCode, email, password }) {
   return response.json();
 }
 
+async function registrationError(response, fallback) {
+  const problem = await response.json().catch(() => null);
+  switch (problem?.detail) {
+    case 'tenant code does not exist':
+      return '租户代码不存在。请先创建工作区，或向管理员确认租户代码。';
+    case 'tenant code already exists':
+      return '租户代码已存在，请改用其他代码或直接登录。';
+    case 'email already exists':
+      return '该邮箱已注册，请返回登录或改用其他邮箱。';
+    default:
+      return fallback;
+  }
+}
+
+export async function registerTenant({ email, displayName, password }) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/tenants/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, displayName, password }),
+  });
+  if (!response.ok) throw new Error(await registrationError(response, '工作区创建失败，请检查填写内容后重试。'));
+  return response.json();
+}
+
 export async function registerCustomer({ tenantCode, email, displayName, password }) {
   const response = await fetch(`${API_BASE_URL}/api/v1/customers/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tenantCode, email, displayName, password }),
   });
-  if (!response.ok) throw new Error('注册失败，请确认租户代码或更换邮箱');
+  if (!response.ok) throw new Error(await registrationError(response, '消费者注册失败，请检查填写内容后重试。'));
   return response.json();
 }
 
@@ -138,6 +181,14 @@ export async function getSession() {
   if (!response.ok) throw new Error('登录已失效');
   return response.json();
 }
+
+export const getMyProfile = () => adminRequest('/api/v1/auth/profile', {}, '个人资料加载失败');
+export const updateMyProfile = values => adminRequest('/api/v1/auth/profile', {
+  method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values),
+}, '个人资料保存失败');
+export const changePassword = ({currentPassword, newPassword}) => adminRequest('/api/v1/auth/change-password', {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({currentPassword, newPassword}),
+}, '密码更新失败');
 
 export async function getCustomerOrders() {
   const token = localStorage.getItem('supportflow.accessToken');

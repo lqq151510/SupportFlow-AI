@@ -17,6 +17,7 @@ public class CustomerRegistrationController {
     @PostMapping("/register")
     ResponseEntity<TenantRegistrationResponse> register(@Valid @RequestBody CustomerRegistrationRequest request) {
         TenantAdminRegistrationResult result = service.register(request.tenantCode(), request.email(), request.displayName(), request.password());
-        return ResponseEntity.status(201).body(new TenantRegistrationResponse(result.tenantId().toString(), result.userId().toString(), result.membershipId().toString()));
+        return ResponseEntity.status(201).body(new TenantRegistrationResponse(
+                result.tenantId().toString(), result.userId().toString(), result.membershipId().toString(), request.tenantCode()));
     }
 }

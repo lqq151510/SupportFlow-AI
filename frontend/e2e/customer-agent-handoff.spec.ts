@@ -34,7 +34,12 @@ test('consumer handoff is claimed, documented, resolved and closed by an agent',
   await agentPage.getByLabel('邮箱').fill(adminEmail);
   await agentPage.getByLabel('密码').fill(password);
   await agentPage.getByRole('button', {name: '登录'}).click();
-  await agentPage.getByRole('button', {name: '工单'}).click();
+  const ticketSearch = agentPage.getByRole('combobox', {name: '全局搜索工单'});
+  await ticketSearch.click();
+  await expect(ticketSearch).toBeFocused();
+  await ticketSearch.fill('customer request');
+  await expect(agentPage.getByRole('option', {name: /customer request requires an agent/})).toBeVisible();
+  await ticketSearch.press('Enter');
   await expect(agentPage.getByRole('heading', {name: '工单协同'})).toBeVisible();
   await expect(agentPage.getByRole('heading', {name: 'customer request requires an agent'})).toBeVisible();
   await agentPage.getByRole('button', {name: '认领工单'}).click();

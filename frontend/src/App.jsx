@@ -1,11 +1,12 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {addTicketComment, assignTicket, changeTicketStatus, claimTicket, createConversation, decideApproval, getApprovals, getAssignableMembers, getCustomerOrders, getOperationsOverview, getSession, getTicketComments, getTicketContext, getTickets, login, readGenerationEvents, registerCustomer, submitCustomerMessage} from './api.js';
+import {addTicketComment, assignTicket, changeTicketStatus, claimTicket, createConversation, decideApproval, getApprovals, getAssignableMembers, getBackendHealth, getCustomerOrders, getOperationsOverview, getSession, getTicketComments, getTicketContext, getTickets, login, readGenerationEvents, registerCustomer, registerTenant, submitCustomerMessage} from './api.js';
 import {createRoot} from 'react-dom/client';
 import {LayoutDashboard, Ticket, Users, BookOpen, Workflow, BarChart3, Settings, Search, Bell, MessageSquare, ChevronDown, Plus, Upload, FileText, CheckCircle2, Clock3, AlertTriangle, ArrowRight, Bot, ShieldCheck, SlidersHorizontal, Send, ExternalLink, RefreshCcw, ClipboardList} from 'lucide-react';
 import './styles.css';
 import {KnowledgeWorkspace} from './KnowledgeWorkspace.jsx';
 import {ModelSettings} from './ModelSettings.jsx';
 import {AnalyticsWorkspace} from './AnalyticsWorkspace.jsx';
+import {AccountCenter} from './AccountCenter.jsx';
 
 const nav = [
   ['概览','overview',LayoutDashboard], ['工单','tickets',Ticket], ['客户','customers',Users], ['知识库','knowledge',BookOpen], ['自动化','automation',Workflow], ['分析','analytics',BarChart3], ['设置','settings',Settings]
@@ -28,17 +29,58 @@ export function App(){
 
 function Workspace({session}){
   const [page,setPage] = useState(session.role==='CUSTOMER'?'customers':'overview');
+  const previousPageRef = useRef(session.role==='CUSTOMER'?'customers':'overview');
+  const [profile,setProfile] = useState(null);
   const [selected,setSelected] = useState(tickets[0]);
   const [notice,setNotice] = useState('');
   const [overview,setOverview] = useState(null);
   const [workspaceTickets,setWorkspaceTickets] = useState(tickets);
+  const [searchQuery,setSearchQuery] = useState('');
+  const [searchOpen,setSearchOpen] = useState(false);
+  const searchInputRef = useRef(null);
   const nav = session.role==='CUSTOMER'?customerNav:agentNav;
   useEffect(()=>{if(session.role==='CUSTOMER')return;getOperationsOverview().then(setOverview).catch(error=>setNotice(error.message));},[session.role]);
   useEffect(()=>{if(session.role==='CUSTOMER')return;getTickets().then(items=>{const normalized=items.map(toWorkspaceTicket);if(normalized.length){setWorkspaceTickets(normalized);setSelected(normalized[0]);}}).catch(error=>setNotice(error.message));},[session.role]);
-  const navTo = (key)=>{setPage(key); setNotice('')};
+  useEffect(()=>{
+    const handleShortcut = event=>{
+      if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&session.role!=='CUSTOMER'){
+        event.preventDefault();
+        setSearchOpen(true);
+        searchInputRef.current?.focus();
+      }
+      if((event.metaKey||event.ctrlKey)&&event.key===','){
+        event.preventDefault();
+        setPage(current => {
+          if (current === 'account') {
+            return previousPageRef.current || (session.role==='CUSTOMER'?'customers':'overview');
+          } else {
+            previousPageRef.current = current;
+            return 'account';
+          }
+        });
+        setNotice('');
+      }
+    };
+    window.addEventListener('keydown',handleShortcut);
+    return ()=>window.removeEventListener('keydown',handleShortcut);
+  },[session.role]);
+  const navTo = (key)=>{
+    if (page !== 'account') previousPageRef.current = page;
+    setPage(key);
+    setNotice('');
+  };
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const searchResults = normalizedSearch ? workspaceTickets.filter(ticket=>[ticket.id,ticket.title,ticket.customer,ticket.status,ticket.priority].some(value=>String(value).toLocaleLowerCase().includes(normalizedSearch))).slice(0,6) : [];
+  const openTicket = ticket=>{setSelected(ticket);setPage('tickets');setSearchQuery('');setSearchOpen(false);setNotice('')};
+  const handleSearchKeyDown = event=>{
+    if(event.key==='Escape'){setSearchQuery('');setSearchOpen(false);event.currentTarget.blur();}
+    if(event.key==='Enter'&&searchResults.length){event.preventDefault();openTicket(searchResults[0]);}
+  };
+  const initials = (profile?.displayName || '账户').trim().slice(0, 2).toLocaleUpperCase();
+  const accountName = profile?.displayName || '个人中心';
   return <div className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className="global-search"><Search size={17}/><span>搜索工单、客户、文档…</span><kbd>⌘ K</kbd></div><div className="top-actions"><Bell size={19}/><span className="notification">3</span><MessageSquare size={19}/><div className="online"><i/>在线</div><div className="avatar">AS</div><ChevronDown size={16}/></div></header>
-    <div className="workspace"><aside className="sidebar"><nav>{nav.map(([label,key,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>navTo(key)}><Icon size={19}/><span>{label}</span>{key==='tickets'&&<b>{workspaceTickets.length}</b>}</button>)}</nav><div className="vector-health"><div className="health-title">向量存储健康度 <CheckCircle2 size={15}/></div><strong>按知识库查看</strong><p>实时状态请进入知识库管理</p><div className="progress"><span style={{width:'100%'}}/></div></div><div className="tenant"><div className="avatar">AS</div><div><strong>当前租户</strong><small>{session.role}</small></div><ChevronDown size={16}/></div></aside><main className="main-content">{page==='overview'&&<Overview onNav={navTo} overview={overview} tickets={workspaceTickets}/>} {page==='knowledge'&&<KnowledgeWorkspace setNotice={setNotice}/>} {page==='tickets'&&<Tickets tickets={workspaceTickets} selected={selected} setSelected={setSelected} setWorkspaceTickets={setWorkspaceTickets} notice={notice} setNotice={setNotice}/>} {page==='customers'&&<Customer/>} {page==='analytics'&&<AnalyticsWorkspace overview={overview}/>} {page==='settings'&&<ModelSettings setNotice={setNotice}/>} {page==='automation'&&<Approvals notice={notice} setNotice={setNotice}/>}</main></div>
+    <header className="topbar"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div>{session.role!=='CUSTOMER'&&<div className="global-search" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setSearchOpen(false);}}><Search size={17}/><input ref={searchInputRef} aria-label="全局搜索工单" role="combobox" aria-expanded={searchOpen&&Boolean(normalizedSearch)} aria-controls="global-ticket-search-results" value={searchQuery} onFocus={()=>setSearchOpen(true)} onChange={event=>{setSearchQuery(event.target.value);setSearchOpen(true);}} onKeyDown={handleSearchKeyDown} placeholder="搜索工单编号、标题、客户…"/><kbd>⌘ K</kbd>{searchOpen&&normalizedSearch&&<div className="global-search-results" id="global-ticket-search-results" role="listbox">{searchResults.map(ticket=><button key={ticket.id} role="option" aria-selected="false" onMouseDown={event=>event.preventDefault()} onClick={()=>openTicket(ticket)}><span><strong>{ticket.id}</strong>{ticket.title}</span><small>{ticket.customer} · {ticket.status} · {ticket.priority}</small></button>)}{!searchResults.length&&<p>没有匹配的工单</p>}</div>}</div>}<div className="top-actions"><Bell size={19}/><span className="notification">3</span><MessageSquare size={19}/><div className="online"><i/>在线</div><button className="account-menu-trigger" aria-label="打开个人中心" onClick={()=>navTo('account')}><div className="avatar">{initials}</div><span>{accountName}</span><kbd className="topbar-shortcut-badge">⌘ ,</kbd><ChevronDown size={16}/></button></div></header>
+    <div className="workspace"><aside className="sidebar"><nav>{nav.map(([label,key,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>navTo(key)}><Icon size={19}/><span>{label}</span>{key==='tickets'&&<b>{workspaceTickets.length}</b>}</button>)}</nav><div className="vector-health"><div className="health-title">向量存储健康度 <CheckCircle2 size={15}/></div><strong>按知识库查看</strong><p>实时状态请进入知识库管理</p><div className="progress"><span style={{width:'100%'}}/></div></div><button className={'tenant '+(page==='account'?'active':'')} onClick={()=>navTo('account')}><div className="avatar">{initials}</div><div><strong>{profile?.tenantName || '当前工作区'}</strong><small>{profile?.role || session.role}</small></div><ChevronDown size={16}/></button></aside><main className="main-content">{page==='overview'&&<Overview onNav={navTo} overview={overview} tickets={workspaceTickets}/>} {page==='knowledge'&&<KnowledgeWorkspace setNotice={setNotice}/>} {page==='tickets'&&<Tickets tickets={workspaceTickets} selected={selected} setSelected={setSelected} setWorkspaceTickets={setWorkspaceTickets} notice={notice} setNotice={setNotice}/>} {page==='customers'&&<Customer/>} {page==='analytics'&&<AnalyticsWorkspace overview={overview}/>} {page==='settings'&&<ModelSettings setNotice={setNotice}/>} {page==='automation'&&<Approvals notice={notice} setNotice={setNotice}/>} {page==='account'&&<AccountCenter session={session} setNotice={setNotice} onProfileChange={setProfile} onOpenModelSettings={()=>navTo('settings')}/>}</main></div>
     {notice&&<div className="toast"><CheckCircle2 size={17}/>{notice}</div>}
   </div>
 }
@@ -52,14 +94,35 @@ function LoginPage({onSignedIn}) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState('login');
+  const [tenantCode, setTenantCode] = useState(() => globalThis.localStorage?.getItem('supportflow.tenantCode') || '');
+  const [backendStatus, setBackendStatus] = useState('checking');
+  const checkBackend = async () => {
+    setBackendStatus('checking');
+    try {
+      await getBackendHealth();
+      setBackendStatus('connected');
+    } catch {
+      setBackendStatus('disconnected');
+    }
+  };
+  useEffect(() => {
+    checkBackend();
+  }, []);
   const submit = async (event) => {
     event.preventDefault();
     setError('');
     setSubmitting(true);
     const values = new FormData(event.currentTarget);
     try {
-      if (mode === 'register') await registerCustomer({tenantCode:values.get('tenantCode'), email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
-      const tokens = await login({tenantCode:values.get('tenantCode'), email:values.get('email'), password:values.get('password')});
+      let submittedTenantCode = values.get('tenantCode');
+      if (mode === 'customer-register') await registerCustomer({tenantCode:submittedTenantCode, email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
+      if (mode === 'tenant-register') {
+        const registration = await registerTenant({email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
+        submittedTenantCode = registration.tenantCode;
+      }
+      const tokens = await login({tenantCode:submittedTenantCode, email:values.get('email'), password:values.get('password')});
+      localStorage.setItem('supportflow.tenantCode', submittedTenantCode);
+      setTenantCode(submittedTenantCode);
       localStorage.setItem('supportflow.accessToken', tokens.accessToken);
       localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
       onSignedIn(await getSession());
@@ -71,8 +134,16 @@ function LoginPage({onSignedIn}) {
       setSubmitting(false);
     }
   };
-  const registering = mode === 'register';
-  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><h1>{registering?'创建消费者账户':'登录服务工作台'}</h1><p>{registering?'注册后会自动生成可演示的订单并进入消费者服务页。':'使用租户代码、邮箱和密码进入消费者或坐席视图。'}</p><form onSubmit={submit}><label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization"/></label>{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary>{submitting?(registering?'注册中…':'登录中…'):(registering?'注册并登录':'登录')}</Button></form><button className="text-link" onClick={()=>{setMode(registering?'login':'register');setError('');}}>{registering?'已有账户？返回登录':'新用户？注册消费者账户'}</button><p className="safe-note"><ShieldCheck size={15}/>登录令牌只保存在当前浏览器本地存储中。</p></section></main>;
+  const customerRegistering = mode === 'customer-register';
+  const tenantRegistering = mode === 'tenant-register';
+  const registering = customerRegistering || tenantRegistering;
+  const backendConnected = backendStatus === 'connected';
+  const switchMode = nextMode => { setMode(nextMode); setError(''); };
+  const title = tenantRegistering ? '创建工作区管理员' : customerRegistering ? '创建消费者账户' : '登录服务工作台';
+  const description = tenantRegistering ? '首次使用只需填写姓名、邮箱和密码；系统会自动创建工作区并让你成为管理员。' : customerRegistering ? '请使用已存在的租户代码注册消费者账户，注册后会生成演示订单。' : tenantCode ? '使用本机已保存的工作区登录；需要切换工作区时再输入代码。' : '使用租户代码、邮箱和密码进入消费者或坐席视图。';
+  const submitLabel = customerRegistering ? '注册并登录' : tenantRegistering ? '创建并登录' : '登录';
+  const submittingLabel = customerRegistering ? '注册中…' : tenantRegistering ? '创建中…' : '登录中…';
+  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className={`backend-status ${backendStatus}`} role="status"><span/><div><strong>{backendStatus==='connected'?'本地服务已连接':backendStatus==='checking'?'正在检测本地服务':'本地服务未连接'}</strong><small>{backendStatus==='disconnected'?'请先启动 SupportFlow 后端，再重新检测。':'后端地址：http://localhost:8080'}</small></div>{backendStatus==='disconnected'&&<button type="button" onClick={checkBackend}>重新检测</button>}</div><h1>{title}</h1><p>{description}</p><form onSubmit={submit}>{!tenantRegistering&&(tenantCode?<><input name="tenantCode" type="hidden" value={tenantCode}/><p className="safe-note">此 Mac 已保存当前工作区。<button type="button" className="text-link" onClick={()=>setTenantCode('')}>切换工作区</button></p></>:<label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization" placeholder="例如 my-store"/></label>)}{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary disabled={!backendConnected||submitting}>{submitting?submittingLabel:submitLabel}</Button></form>{registering?<button className="text-link" onClick={()=>switchMode('login')}>已有账户？返回登录</button>:<div className="login-links"><button className="text-link" onClick={()=>switchMode('tenant-register')}>首次使用？创建工作区</button><button className="text-link" onClick={()=>switchMode('customer-register')}>新用户？注册消费者账户</button></div>}<p className="safe-note"><ShieldCheck size={15}/>登录令牌和当前工作区标识只保存在此 Mac 的浏览器本地存储中。</p></section></main>;
 }
 
 function Approvals({setNotice}) {

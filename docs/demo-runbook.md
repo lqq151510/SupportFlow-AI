@@ -2,7 +2,7 @@
 
 ## 演示闭环
 
-1. 使用 `POST /api/v1/tenants/register` 创建租户管理员，并用 `POST /api/v1/customers/register` 创建消费者。
+1. 使用 `POST /api/v1/tenants/register` 创建租户管理员：首次使用只需 email、displayName、password，服务端会生成内部 tenantCode；随后用该代码调用 `POST /api/v1/customers/register` 创建消费者。
 2. 消费者登录后创建会话，再以 `Idempotency-Key` 提交消息；接口返回 `202` 和 `generationId`。
 3. 使用 `GET /api/v1/customer/generations/{generationId}/events` 读取 SSE。断线后带 `Last-Event-ID` 重连；事件协议见 `docs/contracts/generation-sse.md`。
 4. 只有达到当前租户 RAG 的最低分数和最小引用数时才生成回复；否则收到 `knowledge.insufficient` 并创建转人工工单。

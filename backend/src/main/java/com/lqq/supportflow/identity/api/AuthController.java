@@ -1,9 +1,13 @@
 package com.lqq.supportflow.identity.api;
 import com.lqq.supportflow.identity.application.LoginService;
 import com.lqq.supportflow.identity.application.ChangePasswordService;
+import com.lqq.supportflow.identity.application.CurrentUserProfileService;
+import com.lqq.supportflow.identity.domain.CurrentUserProfile;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -17,10 +21,12 @@ public class AuthController {
 
     private final LoginService service;
     private final ChangePasswordService changePassword;
+    private final CurrentUserProfileService profiles;
 
-    public AuthController(LoginService service, ChangePasswordService changePassword) {
+    public AuthController(LoginService service, ChangePasswordService changePassword, CurrentUserProfileService profiles) {
         this.service = service;
         this.changePassword = changePassword;
+        this.profiles = profiles;
     }
 
     @PostMapping("/login")
@@ -39,9 +45,21 @@ public class AuthController {
         service.logout(request.refreshToken());
     }
 
-    @org.springframework.web.bind.annotation.GetMapping("/session")
+    @GetMapping("/session")
     AuthenticatedPrincipal session(@AuthenticationPrincipal AuthenticatedPrincipal subject) {
         return subject;
+    }
+
+    @GetMapping("/profile")
+    CurrentUserProfile profile(@AuthenticationPrincipal AuthenticatedPrincipal principal) {
+        return profiles.get(principal);
+    }
+
+    @PatchMapping("/profile")
+    CurrentUserProfile updateProfile(
+            @AuthenticationPrincipal AuthenticatedPrincipal principal,
+            @Valid @RequestBody UpdateCurrentUserProfileRequest request) {
+        return profiles.updateDisplayName(principal, request.displayName());
     }
 
     @PostMapping("/change-password")

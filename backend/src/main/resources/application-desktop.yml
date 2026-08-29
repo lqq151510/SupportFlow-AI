@@ -1,0 +1,11 @@
+# 仅用于 macOS 单机客户端：数据保存在当前用户的 Application Support 目录，
+# 不影响默认内存 H2 测试配置，也不替代 Docker/生产环境的 MySQL 配置。
+spring:
+  datasource:
+    url: jdbc:h2:file:${SUPPORTFLOW_DESKTOP_DATA_DIR:${user.home}/Library/Application Support/SupportFlow AI/data}/supportflow;MODE=MySQL;DATABASE_TO_LOWER=TRUE
+
+supportflow:
+  model:
+    mock:
+      # 桌面版默认走租户已保存的云端模型配置；Mock 仅保留给显式的开发测试覆盖。
+      enabled: ${SUPPORTFLOW_MODEL_MOCK_ENABLED:false}

@@ -32,6 +32,30 @@ npm ci
 npm run dev
 ```
 
+## macOS 本地客户端
+
+Apple Silicon Mac 可以通过项目级入口同时启动本地持久化 H2 后端和 Tauri 客户端；桌面版默认不启用本地 Mock 模型，而是使用在应用内保存的云端模型 API 配置。后端未运行时，登录页会显示连接状态并提供重新检测：
+
+```bash
+./script/build_and_run.sh
+```
+
+该入口只会停止当前仓库构建出的 Tauri 进程；若 8080 端口已有健康的 SupportFlow 后端则直接复用，否则以 `desktop` profile 启动后端，并在客户端退出时一并停止。首次启动会在 macOS Keychain 创建一把仅本机可用的模型加密主密钥；后续启动读取同一把密钥，避免已保存的模型配置无法解密。登录租户管理员后，在“模型配置”中添加并测试 `OPENAI_COMPATIBLE` 或 `ANTHROPIC_MESSAGES` 的云端端点、模型名和 API Key，再设为默认模型。API Key 仅在保存/测试时提交并以 AES-GCM 加密保存，不能也不应写入 `.env`、源码或日志。H2 数据位于 `~/Library/Application Support/SupportFlow AI/data/`，后端日志位于 `~/Library/Application Support/SupportFlow AI/logs/backend.log`，均不进入仓库。
+
+若要把数据存放到其他目录（例如隔离测试），可以显式覆盖：
+
+```bash
+SUPPORTFLOW_DESKTOP_DATA_DIR="/tmp/supportflow-desktop-test" ./script/build_and_run.sh
+```
+
+运行完整 macOS 单测、DMG 构建和磁盘映像校验：
+
+```bash
+./script/build_and_run.sh --verify
+```
+
+DMG 输出位于 `frontend/src-tauri/target/release/bundle/dmg/`。发行物内嵌本机后端辅助进程：8080 没有健康的 SupportFlow 后端时，应用会启动该进程并使用持久化 H2；关闭客户端时会停止自己启动的进程。模型仍只通过管理员保存的云端 API 配置调用。需要 MySQL、Redis、Elasticsearch、MinIO 与 RocketMQ 的完整功能时，仍使用下方 Docker Compose 环境。
+
 ## 浏览器验收
 
 先启动后端与前端开发服务，再运行消费者到坐席的真实主流程：
@@ -41,6 +65,15 @@ SUPPORTFLOW_API_BASE_URL=http://localhost:8080 \
 VITE_API_BASE_URL=http://localhost:8080 \
 PLAYWRIGHT_BASE_URL=http://localhost:5173 \
 npm --prefix frontend run test:e2e
+```
+
+若 Playwright 专用 Chromium 尚未下载，macOS 可直接复用系统 Google Chrome：
+
+```bash
+SUPPORTFLOW_API_BASE_URL=http://localhost:8080 \
+VITE_API_BASE_URL=http://localhost:8080 \
+PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+npm --prefix frontend run test:e2e:macos
 ```
 
 快速 E2E 覆盖管理端知识库与模型配置，以及消费者注册、创建会话、人工转接 SSE、坐席认领、备注、解决和关闭工单；GitHub Actions 会自动执行它。需要重新生成约 3 分钟的演示录像时，单独运行 `npm --prefix frontend run test:demo`，避免录屏等待拖慢日常反馈。

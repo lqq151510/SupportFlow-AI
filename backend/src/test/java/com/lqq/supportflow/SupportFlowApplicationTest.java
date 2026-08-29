@@ -53,6 +53,36 @@ class SupportFlowApplicationTest {
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
                 .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("POST")))
                 .andExpect(header().string("Access-Control-Allow-Headers", org.hamcrest.Matchers.containsString("idempotency-key")));
+
+        mockMvc.perform(options("/api/v1/admin/approvals")
+                        .header("Origin", "http://127.0.0.1:5174")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "authorization,idempotency-key"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://127.0.0.1:5174"));
+    }
+
+    @Test
+    void tauriDesktopOriginCanReachLocalApiAndHealthCheck() throws Exception {
+        mockMvc.perform(options("/api/v1/auth/login")
+                        .header("Origin", "tauri://localhost")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "tauri://localhost"));
+
+        mockMvc.perform(get("/actuator/health").header("Origin", "tauri://localhost"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "tauri://localhost"));
+    }
+
+    @Test
+    void untrustedDesktopOriginIsRejected() throws Exception {
+        mockMvc.perform(options("/api/v1/auth/login")
+                        .header("Origin", "https://untrusted.example")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -62,9 +92,20 @@ class SupportFlowApplicationTest {
                 """;
         mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(body))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.tenantId").isString())
-                .andExpect(jsonPath("$.userId").isString()).andExpect(jsonPath("$.membershipId").isString());
+                .andExpect(jsonPath("$.userId").isString()).andExpect(jsonPath("$.membershipId").isString())
+                .andExpect(jsonPath("$.tenantCode").value("acme-shop"));
         mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(body))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
+    }
+
+    @Test
+    void tenantRegistrationGeneratesInternalWorkspaceCodeWhenTheFirstUserDoesNotProvideOne() throws Exception {
+        String body = """
+                {"email":"first-user@acme.test","displayName":"First User","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tenantCode").value(org.hamcrest.Matchers.matchesPattern("workspace-[a-f0-9]{12}")));
     }
 
     @Test
@@ -160,6 +201,33 @@ class SupportFlowApplicationTest {
         mockMvc.perform(get("/api/v1/auth/session").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("TENANT_ADMIN"));
+    }
+
+    @Test
+    void authenticatedUserReadsAndUpdatesOnlyItsOwnProfile() throws Exception {
+        String registration = """
+                {"tenantCode":"profile-shop","tenantName":"Profile Shop","email":"admin@profile.test","displayName":"Profile Admin","password":"safe-password-123"}
+                """;
+        mockMvc.perform(post("/api/v1/tenants/register").contentType("application/json").content(registration))
+                .andExpect(status().isCreated());
+        String accessToken = loginAccessToken("profile-shop", "admin@profile.test", "safe-password-123");
+
+        mockMvc.perform(get("/api/v1/auth/profile").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Profile Admin"))
+                .andExpect(jsonPath("$.email").value("admin@profile.test"))
+                .andExpect(jsonPath("$.tenantName").value("Profile Shop"))
+                .andExpect(jsonPath("$.tenantCode").value("profile-shop"))
+                .andExpect(jsonPath("$.password").doesNotExist());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/v1/auth/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType("application/json")
+                        .content("{\"displayName\":\"Updated Admin\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Updated Admin"));
+        mockMvc.perform(get("/api/v1/auth/profile").header("Authorization", "Bearer " + accessToken))
+                .andExpect(jsonPath("$.displayName").value("Updated Admin"))
+                .andExpect(jsonPath("$.email").value("admin@profile.test"));
     }
 
     @Test

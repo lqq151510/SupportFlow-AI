@@ -36,6 +36,7 @@ public class GenerateReplyService {
     private final ToolExecutionService tools;
     private final KnowledgeRetrievalService knowledge;
     private final ConversationPort conversations;
+    private final com.lqq.supportflow.model.ModelUsageService usageService;
     private final ObjectMapper json;
 
     public GenerateReplyService(GenerationLifecycleService lifecycle,
@@ -44,7 +45,17 @@ public class GenerateReplyService {
                                 ToolExecutionService tools,
                                 KnowledgeRetrievalService knowledge,
                                 ObjectMapper json) {
-        this(lifecycle, events, models, tools, knowledge, null, json);
+        this(lifecycle, events, models, tools, knowledge, null, null, json);
+    }
+
+    public GenerateReplyService(GenerationLifecycleService lifecycle,
+                                GenerationEventStore events,
+                                ModelChatService models,
+                                ToolExecutionService tools,
+                                KnowledgeRetrievalService knowledge,
+                                ConversationPort conversations,
+                                ObjectMapper json) {
+        this(lifecycle, events, models, tools, knowledge, conversations, null, json);
     }
 
     @Autowired
@@ -54,6 +65,7 @@ public class GenerateReplyService {
                                 ToolExecutionService tools,
                                 KnowledgeRetrievalService knowledge,
                                 @Autowired(required = false) ConversationPort conversations,
+                                @Autowired(required = false) com.lqq.supportflow.model.ModelUsageService usageService,
                                 ObjectMapper json) {
         this.lifecycle = lifecycle;
         this.events = events;
@@ -61,6 +73,7 @@ public class GenerateReplyService {
         this.tools = tools;
         this.knowledge = knowledge;
         this.conversations = conversations;
+        this.usageService = usageService;
         this.json = json;
     }
 
@@ -94,10 +107,14 @@ public class GenerateReplyService {
                 }
             }
             if (outcome == null) throw new IllegalStateException("model retry did not complete");
+            long latencyMs = (System.nanoTime() - startedAt) / 1_000_000;
             if (outcome.failed || outcome.requiresApproval) {
                 lifecycle.handoff(request, outcome.failed ? "model generation failed" : "high-risk action requires approval");
             } else {
-                lifecycle.complete(request, outcome.response.toString(), outcome.inputTokens, outcome.outputTokens, (System.nanoTime() - startedAt) / 1_000_000);
+                lifecycle.complete(request, outcome.response.toString(), outcome.inputTokens, outcome.outputTokens, latencyMs);
+            }
+            if (usageService != null && (outcome.inputTokens > 0 || outcome.outputTokens > 0)) {
+                usageService.recordUsage(request.tenantId(), "CHAT", "chat-assistant", "STREAM", outcome.inputTokens, outcome.outputTokens, latencyMs);
             }
         } catch (Exception exception) {
             events.appendIfAbsent(request.tenantId(), request.generationId(), "model.failed", "{\"code\":\"MODEL_UNAVAILABLE\"}");

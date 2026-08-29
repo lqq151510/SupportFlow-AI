@@ -15,8 +15,14 @@ public class OperationsMetricsService {
         long completed = count("SELECT COUNT(*) FROM generations WHERE tenant_id = ? AND status = 'COMPLETED'", tenantId);
         long handoff = count("SELECT COUNT(*) FROM generations WHERE tenant_id = ? AND status = 'HANDOFF_REQUIRED'", tenantId);
         long overdue = count("SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND resolution_due_at <= ? AND status NOT IN ('RESOLVED', 'CLOSED')", tenantId, Timestamp.from(Instant.now()));
-        long input = value("SELECT COALESCE(SUM(input_tokens), 0) FROM generations WHERE tenant_id = ?", tenantId);
-        long output = value("SELECT COALESCE(SUM(output_tokens), 0) FROM generations WHERE tenant_id = ?", tenantId);
+        
+        long genInput = value("SELECT COALESCE(SUM(input_tokens), 0) FROM generations WHERE tenant_id = ?", tenantId);
+        long genOutput = value("SELECT COALESCE(SUM(output_tokens), 0) FROM generations WHERE tenant_id = ?", tenantId);
+        long usageInput = safeValue("SELECT COALESCE(SUM(input_tokens), 0) FROM model_usage_records WHERE tenant_id = ?", tenantId);
+        long usageOutput = safeValue("SELECT COALESCE(SUM(output_tokens), 0) FROM model_usage_records WHERE tenant_id = ?", tenantId);
+
+        long input = Math.max(genInput, usageInput);
+        long output = Math.max(genOutput, usageOutput);
         long latency = value("SELECT COALESCE(AVG(latency_ms), 0) FROM generations WHERE tenant_id = ? AND latency_ms IS NOT NULL", tenantId);
         long terminal = completed + handoff;
         return new OperationsOverview(completed, handoff, terminal == 0 ? 0.0 : (double) completed / terminal, overdue, input, output, latency);
@@ -24,4 +30,12 @@ public class OperationsMetricsService {
 
     private long count(String sql, Object... values) { return value(sql, values); }
     private long value(String sql, Object... values) { Number value = jdbc.queryForObject(sql, Number.class, values); return value == null ? 0L : value.longValue(); }
+    private long safeValue(String sql, Object... values) {
+        try {
+            Number value = jdbc.queryForObject(sql, Number.class, values);
+            return value == null ? 0L : value.longValue();
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
 }

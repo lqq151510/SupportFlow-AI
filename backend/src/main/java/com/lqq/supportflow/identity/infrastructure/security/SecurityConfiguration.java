@@ -48,9 +48,11 @@ public class SecurityConfiguration {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource(
-            @Value("${supportflow.cors.allowed-origins:http://localhost:5173}") List<String> allowedOrigins) {
+            @Value("${supportflow.cors.allowed-origins:http://localhost:5173,tauri://localhost,http://tauri.localhost}")
+                    List<String> allowedOrigins) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
+        configuration.setAllowedOriginPatterns(List.of("http://localhost:*", "http://127.0.0.1:*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID", "X-Request-Id"));
         configuration.setExposedHeaders(List.of("X-Request-Id"));
@@ -58,6 +60,7 @@ public class SecurityConfiguration {
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
+        source.registerCorsConfiguration("/actuator/health", configuration);
         return source;
     }
 

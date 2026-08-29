@@ -15,4 +15,9 @@ public class SetDefaultModelConfigService {
     public ModelConfig setDefault(Long tenantId, Long modelConfigId) {
         return configs.setDefault(tenantId, modelConfigId);
     }
+
+    @Transactional
+    public ModelConfig setKnowledgeDefault(Long tenantId, Long modelConfigId) {
+        return configs.setKnowledgeDefault(tenantId, modelConfigId);
+    }
 }
