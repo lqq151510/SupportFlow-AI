@@ -29,7 +29,7 @@ test('first-time admin creates a workspace, then manages knowledge and model con
   await expect(page.getByText(/向量化中|已索引/)).toBeVisible();
 
   await page.getByRole('button', {name: '设置'}).click();
-  await expect(page.getByRole('heading', {name: '模型配置', exact: true})).toBeVisible();
+  await expect(page.getByRole('heading', {name: '模型配置与场景路由', exact: true})).toBeVisible();
   await page.getByLabel('配置名称').fill('客服主模型');
   await page.getByLabel('Base URL').fill('https://api.example.com/v1');
   await page.getByLabel('模型名称').fill('support-model');
@@ -43,7 +43,8 @@ test('first-time admin creates a workspace, then manages knowledge and model con
   await expect(page.getByRole('heading', {name: 'Admin UI'})).toBeVisible();
   await expect(page.getByText(email)).toBeVisible();
   await expect(page.getByText('客服主模型')).toBeVisible();
-  await expect(page.getByRole('button', {name: '管理模型 API'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: '模型 API 接入与场景路由'})).toBeVisible();
+  await expect(page.getByRole('button', {name: /接入新模型/})).toBeVisible();
   await expect(page.getByText('e2e-test-only-key')).toHaveCount(0);
 
   await page.getByRole('button', {name: '编辑资料'}).click();

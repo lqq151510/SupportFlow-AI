@@ -149,5 +149,56 @@ class GenerateReplyServiceTest {
         verify(lifecycle).complete(any(), eq("您的订单 DEMO-001 已发货。"), any(Integer.class), any(Integer.class), any(Long.class));
     }
 
+    @Test
+    void doesNotGenerateWhenTheLifecycleHasAlreadyStartedElsewhere() {
+        GenerationLifecycleService lifecycle = mock(GenerationLifecycleService.class);
+        GenerationEventStore events = mock(GenerationEventStore.class);
+        ModelChatService models = mock(ModelChatService.class);
+        KnowledgeRetrievalService knowledge = mock(KnowledgeRetrievalService.class);
+        when(lifecycle.start(any())).thenReturn(false);
+
+        new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), knowledge, new ObjectMapper())
+                .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "重复生成"));
+
+        verify(knowledge, org.mockito.Mockito.never()).retrieve(any(), any());
+        verify(models, org.mockito.Mockito.never()).stream(any(), any(), any());
+    }
+
+    @Test
+    void handsOffAfterAModelFailureEventAndIgnoresUnknownToolCompletion() {
+        GenerationLifecycleService lifecycle = mock(GenerationLifecycleService.class);
+        GenerationEventStore events = mock(GenerationEventStore.class);
+        ModelChatService models = mock(ModelChatService.class);
+        KnowledgeRetrievalService knowledge = mock(KnowledgeRetrievalService.class);
+        when(lifecycle.start(any())).thenReturn(true);
+        when(knowledge.retrieve(1L, "模型失败")).thenReturn(citations());
+        when(models.stream(eq(1L), any(), any())).thenReturn(Flux.just(
+                new ModelStreamEvent("tool.completed", "{\"callId\":\"unknown\"}"),
+                new ModelStreamEvent("model.failed", "{}")));
+
+        new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), knowledge, new ObjectMapper())
+                .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "模型失败"));
+
+        verify(lifecycle).handoff(any(), eq("model generation failed"));
+    }
+
+    @Test
+    void recordsUnavailableFailureWithoutRetryingANonRetryableException() {
+        GenerationLifecycleService lifecycle = mock(GenerationLifecycleService.class);
+        GenerationEventStore events = mock(GenerationEventStore.class);
+        ModelChatService models = mock(ModelChatService.class);
+        KnowledgeRetrievalService knowledge = mock(KnowledgeRetrievalService.class);
+        when(lifecycle.start(any())).thenReturn(true);
+        when(knowledge.retrieve(1L, "异常")).thenReturn(citations());
+        when(models.stream(eq(1L), any(), any())).thenReturn(Flux.error(new IllegalStateException("bad response")));
+
+        new GenerateReplyService(lifecycle, events, models, mock(ToolExecutionService.class), knowledge, new ObjectMapper())
+                .generate(new GenerationRequestedEvent(1L, 4L, 2L, 3L, "异常"));
+
+        verify(models, times(1)).stream(eq(1L), any(), any());
+        verify(events).appendIfAbsent(1L, 3L, "model.failed", "{\"code\":\"MODEL_UNAVAILABLE\"}");
+        verify(lifecycle).handoff(any(), eq("model generation failed"));
+    }
+
     private java.util.List<RetrievedCitation> citations() { return java.util.List.of(new RetrievedCitation(8L, 9L, 10L, "订单规则", 0.9, 1)); }
 }

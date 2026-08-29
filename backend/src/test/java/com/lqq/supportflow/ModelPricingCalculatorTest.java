@@ -38,4 +38,14 @@ class ModelPricingCalculatorTest {
         assertEquals(new BigDecimal("0.000000"), cost.costCny());
         assertEquals(new BigDecimal("0.000000"), cost.costUsd());
     }
+
+    @Test
+    void supportsEveryConfiguredProviderFamilyAndTheFallbackRate() {
+        for (String model : java.util.List.of("gpt-4o", "gpt-4-turbo", "o1-mini", "o3-mini", "claude-3-5-sonnet", "custom-model")) {
+            ModelPricingCalculator.EstimatedCost cost = ModelPricingCalculator.estimate(model, 1_000_000, 1_000_000);
+            assertTrue(cost.costCny().compareTo(BigDecimal.ZERO) > 0, model);
+            assertTrue(cost.costUsd().compareTo(BigDecimal.ZERO) > 0, model);
+        }
+        assertTrue(ModelPricingCalculator.estimate(null, 1, 1).costCny().compareTo(BigDecimal.ZERO) > 0);
+    }
 }
