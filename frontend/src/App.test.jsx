@@ -10,6 +10,7 @@ import {
   getMyProfile,
   getRecentModelUsages,
   getSession,
+  getApprovals,
   getTickets,
   organizeKnowledgeDocument,
   updateModelConfig,
@@ -22,6 +23,7 @@ vi.mock('./api.js', async () => ({
   getBackendHealth: vi.fn().mockResolvedValue({status: 'UP'}),
   getOperationsOverview: vi.fn().mockResolvedValue(null),
   getTickets: vi.fn().mockResolvedValue([]),
+  getApprovals: vi.fn().mockResolvedValue([]),
   getTicketContext: vi.fn().mockResolvedValue({conversation:{messages:[],traces:[]},orders:[]}),
   getAssignableMembers: vi.fn().mockResolvedValue([]),
   getKnowledgeBases: vi.fn().mockResolvedValue([]),
@@ -139,6 +141,21 @@ test('opens a matching ticket from the command-k global search', async () => {
   expect(search).toHaveValue('');
 });
 
+test('derives the notification badge from current tickets and pending approvals', async () => {
+  vi.mocked(getSession).mockResolvedValueOnce({role: 'TENANT_ADMIN'});
+  vi.mocked(getTickets).mockResolvedValueOnce([
+    {id: '9007199254740991', title: '待跟进工单', customerId: '42', priority: 'NORMAL', status: 'OPEN', resolutionDueAt: '2099-01-01T00:00:00Z'},
+    {id: '9007199254740992', title: '已关闭工单', customerId: '43', priority: 'LOW', status: 'CLOSED', resolutionDueAt: '2099-01-01T00:00:00Z'}
+  ]);
+  vi.mocked(getApprovals).mockResolvedValueOnce([{id: 'approval-1', status: 'PENDING'}]);
+  render(<App/>);
+
+  fireEvent.click(await screen.findByRole('button', {name: '查看通知'}));
+  expect(await screen.findByText('当前工作区有 2 条待处理事项')).toBeInTheDocument();
+  expect(screen.getByText('其中 1 条等待审批')).toBeInTheDocument();
+  expect(screen.getByText('1 个未关闭工单')).toBeInTheDocument();
+});
+
 test('loads tenant knowledge bases and allows AI organizing', async () => {
   vi.mocked(getSession).mockResolvedValueOnce({role: 'ADMIN'});
   vi.mocked(getKnowledgeBases).mockResolvedValueOnce([{id: '9007199254740993', name: '退款政策库', description: '退款规则', status: 'ACTIVE'}]);
@@ -174,16 +191,11 @@ test('opens personal center with real cost estimation dashboard and in-place edi
   render(<App/>);
 
   fireEvent.click(await screen.findByRole('button', {name: '打开个人中心'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: '个人中心'}));
   expect(await screen.findByRole('heading', {name: 'Account Admin'})).toBeInTheDocument();
   expect(screen.getByText('account@example.test')).toBeInTheDocument();
   expect(screen.getByText('真实 API 费用与 Token 归集看板')).toBeInTheDocument();
-  expect(screen.getByText('云端客服模型')).toBeInTheDocument();
-  expect(screen.getByRole('button', {name: '就地编辑'})).toBeInTheDocument();
-
-  // 点击就地编辑
-  fireEvent.click(screen.getByRole('button', {name: '就地编辑'}));
-  expect(screen.getByRole('heading', {name: '就地编辑模型配置'})).toBeInTheDocument();
-  expect(screen.getByDisplayValue('https://api.deepseek.com/v1')).toBeInTheDocument();
+  expect(screen.getByRole('button', {name: '前往设置管理模型与通知'})).toBeInTheDocument();
 });
 
 test('toggles personal center via shortcut Cmd+,', async () => {
@@ -209,6 +221,7 @@ test('updates the displayed personal name using the profile API', async () => {
   render(<App/>);
 
   fireEvent.click(await screen.findByRole('button', {name: '打开个人中心'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: '个人中心'}));
   fireEvent.click(await screen.findByRole('button', {name: '编辑资料'}));
   fireEvent.change(screen.getByLabelText('显示名称'), {target: {value: 'After Update'}});
   fireEvent.click(screen.getByRole('button', {name: '保存资料'}));

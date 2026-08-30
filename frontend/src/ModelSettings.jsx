@@ -142,6 +142,12 @@ export function ModelSettings({setNotice}) {
       </div>
     </div>
     {error && <p className="warning">{error}</p>}
+    <section className="settings-status-strip" aria-label="模型配置状态">
+      <div><span>已接入模型</span><strong>{models.length}</strong><small>{models.length ? '可用于当前工作区' : '尚未接入云端模型'}</small></div>
+      <div><span>客服推理</span><strong>{models.find(model => model.isDefault)?.name || '未设置'}</strong><small>决定 AI 客服会话的默认模型</small></div>
+      <div><span>知识库整理</span><strong>{models.find(model => model.isKnowledgeDefault)?.name || '未设置'}</strong><small>决定文档摘要与标签整理模型</small></div>
+      <button className="btn" onClick={startCreate}><Plus size={15}/>接入模型</button>
+    </section>
     <div className="settings-grid">
       <section className="panel model-list">
         <h2>已配置模型</h2>

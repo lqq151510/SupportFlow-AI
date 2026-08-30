@@ -40,11 +40,10 @@ test('first-time admin creates a workspace, then manages knowledge and model con
   await expect(page.getByLabel('API Key')).toHaveValue('');
 
   await page.getByRole('button', {name: '打开个人中心'}).click();
+  await page.getByRole('menuitem', {name: '个人中心'}).click();
   await expect(page.getByRole('heading', {name: 'Admin UI'})).toBeVisible();
   await expect(page.getByText(email)).toBeVisible();
-  await expect(page.getByText('客服主模型')).toBeVisible();
-  await expect(page.getByRole('heading', {name: '模型 API 接入与场景路由'})).toBeVisible();
-  await expect(page.getByRole('button', {name: /接入新模型/})).toBeVisible();
+  await expect(page.getByRole('button', {name: '前往设置管理模型与通知'})).toBeVisible();
   await expect(page.getByText('e2e-test-only-key')).toHaveCount(0);
 
   await page.getByRole('button', {name: '编辑资料'}).click();

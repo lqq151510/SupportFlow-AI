@@ -403,6 +403,7 @@ export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, 
         <strong>{profile.tenantName}</strong>
         <p>当前账号在工作区内角色为{roleLabel[profile.role] || profile.role}。租户与模型数据由 JWT 上下文严格隔离。</p>
         <div className="workspace-code"><span>租户代码</span><code>{profile.tenantCode}</code><button className="icon-btn" aria-label="复制工作区代码" onClick={copyWorkspaceCode}><Copy size={16}/></button></div>
+        {isAdmin && <button className="btn model-settings-link" onClick={onOpenModelSettings}>前往设置管理模型与通知</button>}
       </section>
 
       {/* 模型 API 接入与就地编辑卡片 (Optimization 2 & 4) */}
