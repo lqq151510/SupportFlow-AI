@@ -9,6 +9,18 @@
 5. 坐席通过 `/api/v1/admin/tickets` 领取、评论、解决并关闭工单。SLA 监控只对仍到期的未响应/未解决工单写一次 Outbox 告警。
 6. 退款/补偿请求创建审批；批准写入 Outbox，消息消费者以 `consumerName + eventId` 幂等执行。
 
+## 桌面单机演示动线（约 3 分钟）
+
+面向面试或自用演示的桌面版流程，全程不依赖 Docker：
+
+1. `./script/build_and_run.sh` 启动开发客户端，或直接打开已安装的 `SupportFlow AI.app`（内嵌后端自动拉起）。登录页顶部应显示"本地服务已连接"。
+2. 首次使用点"首次使用？创建工作区"，填写姓名、邮箱和密码注册租户管理员；桌面版数据落在 `~/Library/Application Support/SupportFlow AI/data/` 的持久化 H2，重启不丢。
+3. 进入"模型配置"，添加云端端点（`OPENAI_COMPATIBLE` 或 `ANTHROPIC_MESSAGES`）、模型名与 API Key，点测试后设为默认。桌面版默认不启用 Mock 模型，这一步是 AI 回复的前置条件。
+4. 切到消费者注册并登录，创建会话提交一条售后咨询；观察 SSE 流式回复与证据引用。知识库为空或证据不足时应收到转人工工单，而不是无依据回复。
+5. 切到坐席视图领取该工单，评论、解决并关闭，展示工单闭环。如有退款类诉求，展示审批创建与批准执行。
+
+演示注意：桌面单机版 Outbox 走进程内投递、检索为内存索引（见 [ADR 0007](adr/0007-desktop-standalone.md)），讲述可靠消息与混合检索时应切换到 Compose 完整栈环境，避免把降级实现说成 RocketMQ/Elasticsearch 链路。后端日志位于 `~/Library/Application Support/SupportFlow AI/logs/backend.log`，演示前可先清理数据目录复位状态。
+
 ## 故障验证
 
 | 场景 | 预期结果 | 检查入口 |

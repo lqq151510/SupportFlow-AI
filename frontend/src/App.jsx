@@ -123,12 +123,22 @@ function LoginPage({onSignedIn}) {
   const [mode, setMode] = useState('login');
   const [tenantCode, setTenantCode] = useState(() => globalThis.localStorage?.getItem('supportflow.tenantCode') || '');
   const [backendStatus, setBackendStatus] = useState('checking');
-  const checkBackend = async () => {
+  const checkBackend = async (retryInDesktop = false) => {
     setBackendStatus('checking');
     try {
       await getBackendHealth();
       setBackendStatus('connected');
     } catch {
+      // 打包版里内嵌后端可能首启失败：仅在用户主动重新检测时，先触发
+      // Tauri 侧的重启命令，再复查一次；挂载时的首次检测保持单次语义。
+      if (retryInDesktop && globalThis.__TAURI_INTERNALS__) {
+        try {
+          await globalThis.__TAURI_INTERNALS__.invoke('restart_backend');
+          await getBackendHealth();
+          setBackendStatus('connected');
+          return;
+        } catch {}
+      }
       setBackendStatus('disconnected');
     }
   };
@@ -170,7 +180,7 @@ function LoginPage({onSignedIn}) {
   const description = tenantRegistering ? '首次使用只需填写姓名、邮箱和密码；系统会自动创建工作区并让你成为管理员。' : customerRegistering ? (tenantCode ? '将使用此 Mac 已保存的工作区注册，注册后会生成演示订单。' : '请先创建或切换到一个工作区，消费者注册会自动使用当前工作区。') : tenantCode ? '使用本机已保存的工作区登录；需要切换工作区时再输入代码。' : '使用租户代码、邮箱和密码进入消费者或坐席视图。';
   const submitLabel = customerRegistering ? '注册并登录' : tenantRegistering ? '创建并登录' : '登录';
   const submittingLabel = customerRegistering ? '注册中…' : tenantRegistering ? '创建中…' : '登录中…';
-  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className={`backend-status ${backendStatus}`} role="status"><span/><div><strong>{backendStatus==='connected'?'本地服务已连接':backendStatus==='checking'?'正在检测本地服务':'本地服务未连接'}</strong><small>{backendStatus==='disconnected'?'请先启动 SupportFlow 后端，再重新检测。':'后端地址：http://localhost:8080'}</small></div>{backendStatus==='disconnected'&&<button type="button" onClick={checkBackend}>重新检测</button>}</div><h1>{title}</h1><p>{description}</p><form onSubmit={submit}>{!tenantRegistering&&(tenantCode?<><input name="tenantCode" type="hidden" value={tenantCode}/><p className="safe-note">此 Mac 已保存当前工作区。<button type="button" className="text-link" onClick={()=>setTenantCode('')}>切换工作区</button></p></>:<label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization" placeholder="例如 my-store"/></label>)}{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary disabled={!backendConnected||submitting}>{submitting?submittingLabel:submitLabel}</Button></form>{registering?<button className="text-link" onClick={()=>switchMode('login')}>已有账户？返回登录</button>:<div className="login-links"><button className="text-link" onClick={()=>switchMode('tenant-register')}>首次使用？创建工作区</button><button className="text-link" onClick={()=>switchMode('customer-register')}>新用户？注册消费者账户</button></div>}<p className="safe-note"><ShieldCheck size={15}/>登录令牌和当前工作区标识只保存在此 Mac 的浏览器本地存储中。</p></section></main>;
+  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className={`backend-status ${backendStatus}`} role="status"><span/><div><strong>{backendStatus==='connected'?'本地服务已连接':backendStatus==='checking'?'正在检测本地服务':'本地服务未连接'}</strong><small>{backendStatus==='disconnected'?'请先启动 SupportFlow 后端，再重新检测。':'后端地址：http://localhost:8080'}</small></div>{backendStatus==='disconnected'&&<button type="button" onClick={()=>checkBackend(true)}>重新检测</button>}</div><h1>{title}</h1><p>{description}</p><form onSubmit={submit}>{!tenantRegistering&&(tenantCode?<><input name="tenantCode" type="hidden" value={tenantCode}/><p className="safe-note">此 Mac 已保存当前工作区。<button type="button" className="text-link" onClick={()=>setTenantCode('')}>切换工作区</button></p></>:<label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization" placeholder="例如 my-store"/></label>)}{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary disabled={!backendConnected||submitting}>{submitting?submittingLabel:submitLabel}</Button></form>{registering?<button className="text-link" onClick={()=>switchMode('login')}>已有账户？返回登录</button>:<div className="login-links"><button className="text-link" onClick={()=>switchMode('tenant-register')}>首次使用？创建工作区</button><button className="text-link" onClick={()=>switchMode('customer-register')}>新用户？注册消费者账户</button></div>}<p className="safe-note"><ShieldCheck size={15}/>登录令牌和当前工作区标识只保存在此 Mac 的浏览器本地存储中。</p></section></main>;
 }
 
 function Approvals({setNotice}) {

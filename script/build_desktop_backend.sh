@@ -35,6 +35,8 @@ rm -rf "$RUNTIME_DIR"
   --no-man-pages \
   --compress=zip-6 \
   --output "$RUNTIME_DIR"
+# jpackage 要求版本号首段 >= 1，无法写 0.1.0；辅助进程版本仅供内部标识，
+# 用户可见的产品版本以 tauri.conf.json 的 version（0.1.0）为准。
 jpackage \
   --type app-image \
   --name "$APP_NAME" \

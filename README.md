@@ -54,7 +54,11 @@ SUPPORTFLOW_DESKTOP_DATA_DIR="/tmp/supportflow-desktop-test" ./script/build_and_
 ./script/build_and_run.sh --verify
 ```
 
-DMG 输出位于 `frontend/src-tauri/target/release/bundle/dmg/`。发行物内嵌本机后端辅助进程：8080 没有健康的 SupportFlow 后端时，应用会启动该进程并使用持久化 H2；关闭客户端时会停止自己启动的进程。模型仍只通过管理员保存的云端 API 配置调用。需要 MySQL、Redis、Elasticsearch、MinIO 与 RocketMQ 的完整功能时，仍使用下方 Docker Compose 环境。
+DMG 输出位于 `frontend/src-tauri/target/release/bundle/dmg/`。发行物内嵌本机后端辅助进程：8080 没有健康的 SupportFlow 后端时，应用会启动该进程并使用持久化 H2；关闭客户端时会停止自己启动的进程。模型仍只通过管理员保存的云端 API 配置调用。需要 MySQL、Redis、Elasticsearch、MinIO 与 RocketMQ 的完整功能时，仍使用下方 Docker Compose 环境。桌面单机形态的架构决策与中间件降级边界见 [ADR 0007](docs/adr/0007-desktop-standalone.md)。
+
+### 签名与分发边界
+
+本项目定位为个人自用：DMG 采用 ad-hoc 签名，未购买 Apple Developer ID、未做公证。本机构建的 app 不带 `com.apple.quarantine` 扩展属性，Gatekeeper 不会拦截，直接双击即可运行。若把 DMG 交给其他 Mac，系统会因"无法验证开发者"阻止打开；临时办法是右键选择"打开"，或在接收方执行 `xattr -dr com.apple.quarantine /Applications/SupportFlow\ AI.app`。要合规分发需升级为 Developer ID 签名加公证，属增量变更，不影响现有构建链路。
 
 ## 浏览器验收
 

@@ -5,6 +5,7 @@ use tauri::{Manager, RunEvent};
 
 const KEYCHAIN_SERVICE: &str = "com.lqq.supportflow.model-secret.v1";
 const KEYCHAIN_ACCOUNT: &str = "MODEL_SECRET_MASTER_KEY";
+const HEALTH_WAIT_POLLS: u64 = 240;
 
 struct BackendProcess(Mutex<Option<Child>>);
 
@@ -35,7 +36,7 @@ fn model_secret() -> Result<String, String> {
   Ok(generated)
 }
 
-fn start_packaged_backend(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn start_packaged_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
   if cfg!(debug_assertions) { return Ok(()); }
   if backend_is_healthy() { return Ok(()); }
 
@@ -51,7 +52,7 @@ fn start_packaged_backend(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     .stdout(fs::File::create(data_dir.join("logs/backend.out.log"))?)
     .stderr(fs::File::create(data_dir.join("logs/backend.err.log"))?)
     .spawn()?;
-  for _ in 0..40 {
+  for _ in 0..HEALTH_WAIT_POLLS {
     if backend_is_healthy() {
       *app.state::<BackendProcess>().0.lock().expect("backend process lock") = Some(child);
       return Ok(());
@@ -62,7 +63,23 @@ fn start_packaged_backend(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     thread::sleep(Duration::from_millis(250));
   }
   let _ = child.kill();
-  return Err("packaged SupportFlow backend did not become healthy within 10 seconds".into());
+  return Err("packaged SupportFlow backend did not become healthy within 60 seconds".into());
+}
+
+/// Re-launch the packaged backend after a failed start. Invoked by the login
+/// page's reconnect button so a slow first boot no longer requires restarting
+/// the whole client.
+#[tauri::command]
+fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
+  if backend_is_healthy() { return Ok(()); }
+  if cfg!(debug_assertions) { return Err("dev mode: start the backend with mvn spring-boot:run".into()); }
+
+  let binding = app.state::<BackendProcess>();
+  let mut guard = binding.0.lock().expect("backend process lock");
+  if let Some(mut child) = guard.take() {
+    let _ = child.kill();
+  }
+  start_packaged_backend(&app).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -70,7 +87,12 @@ pub fn run() {
   let app = tauri::Builder::default()
     .setup(|app| {
       app.manage(BackendProcess(Mutex::new(None)));
-      start_packaged_backend(app)?;
+      if let Err(error) = start_packaged_backend(app.handle()) {
+        // A slow or failed sidecar boot must not crash the client: the login
+        // page renders its disconnected state and offers a reconnect button
+        // backed by the `restart_backend` command.
+        eprintln!("packaged SupportFlow backend not started yet: {error}");
+      }
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -80,6 +102,7 @@ pub fn run() {
       }
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![restart_backend])
     .build(tauri::generate_context!())
     .expect("error while building SupportFlow AI");
   app.run(|app, event| {
