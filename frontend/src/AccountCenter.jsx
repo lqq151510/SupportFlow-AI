@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {
   Activity,
+  AlertTriangle,
   Bot,
   CheckCircle2,
   Coins,
@@ -8,6 +9,7 @@ import {
   DollarSign,
   KeyRound,
   LoaderCircle,
+  LogOut,
   Pencil,
   Plus,
   RefreshCcw,
@@ -25,7 +27,12 @@ import {
   getModelUsageOverview,
   getMyProfile,
   getRecentModelUsages,
+  getSession,
+  login,
   probeModelConnection,
+  registerCustomer,
+  registerTenant,
+  revokeSession,
   setDefaultModelConfig,
   setKnowledgeDefaultModelConfig,
   updateModelConfig,
@@ -50,12 +57,12 @@ const initials = name => (name || 'U').trim().slice(0, 2).toLocaleUpperCase();
 const formatJoinedAt = value => value ? new Intl.DateTimeFormat('zh-CN', {year: 'numeric', month: 'long', day: 'numeric'}).format(new Date(value)) : '—';
 const formatTime = value => value ? new Intl.DateTimeFormat('zh-CN', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(new Date(value)) : '—';
 
-export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, session}) {
+export function AccountCenter({onProfileChange, onOpenModelSettings, onRecheckBackend, onSignedIn, setNotice, session, backendStatus = 'checking'}) {
   const [profile, setProfile] = useState(null);
   const [models, setModels] = useState([]);
   const [usageStats, setUsageStats] = useState(null);
   const [recentRecords, setRecentRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(session));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   
@@ -82,11 +89,12 @@ export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, 
   });
   const [modelSaving, setModelSaving] = useState(false);
 
-  const isAdmin = session.role === 'TENANT_ADMIN';
+  const isAdmin = session?.role === 'TENANT_ADMIN';
   const defaultChatModel = useMemo(() => models.find(model => model.isDefault) || null, [models]);
   const defaultKnowledgeModel = useMemo(() => models.find(model => model.isKnowledgeDefault) || defaultChatModel, [models, defaultChatModel]);
 
   const loadData = async (silent = false) => {
+    if (!session) return;
     if (!silent) setLoading(true);
     else setRefreshing(true);
     setError('');
@@ -112,8 +120,27 @@ export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, 
   };
 
   useEffect(() => {
+    // 访客态不发起任何需要会话的请求；登录状态变化时重新加载。
+    if (!session) {
+      setProfile(null);
+      setModels([]);
+      setUsageStats(null);
+      setRecentRecords([]);
+      setError('');
+      setLoading(false);
+      return;
+    }
     loadData();
-  }, [isAdmin]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, session]);
+
+  const handleLogout = () => {
+    revokeSession(localStorage.getItem('supportflow.refreshToken'));
+    localStorage.removeItem('supportflow.accessToken');
+    localStorage.removeItem('supportflow.refreshToken');
+    setNotice('已退出登录。');
+    onSignedIn(null);
+  };
 
   const saveProfile = async event => {
     event.preventDefault();
@@ -263,6 +290,7 @@ export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, 
     }
   };
 
+  if (!session) return <AuthPanel backendStatus={backendStatus} onRecheckBackend={onRecheckBackend} onSignedIn={onSignedIn}/>;
   if (loading) return <div className="account-loading"><LoaderCircle size={20} className="spin"/><span>正在读取你的本地账户与数据看板…</span></div>;
   if (!profile) return <section className="account-error panel"><h1>个人中心暂不可用</h1><p>{error || '无法读取当前账户资料。'}</p><button className="btn" onClick={() => loadData()}>重新加载</button></section>;
 
@@ -571,8 +599,11 @@ export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, 
       {/* 账户安全 */}
       <section className="panel account-card account-security-card full-width">
         <div className="panel-head"><div><span className="eyebrow">SECURITY</span><h2>账户安全</h2></div><KeyRound size={19}/></div>
-        <p>修改密码后，当前工作区下的刷新令牌会被立即撤销；其他已登录设备的会话将自动失效。</p>
-        <button className="btn" onClick={() => {setPasswordOpen(value => !value); setError('');}}>{passwordOpen ? '收起修改密码' : '修改密码'}</button>
+        <p>修改密码后，当前工作区下的刷新令牌会被立即撤销；其他已登录设备的会话将自动失效。退出登录会同步撤销本机的刷新令牌。</p>
+        <div className="form-actions" style={{justifyContent: 'flex-start', marginTop: 0}}>
+          <button className="btn" onClick={() => {setPasswordOpen(value => !value); setError('');}}>{passwordOpen ? '收起修改密码' : '修改密码'}</button>
+          <button className="btn" onClick={handleLogout}><LogOut size={15}/>退出登录</button>
+        </div>
         {passwordOpen && <form className="account-form password-form" onSubmit={savePassword}>
           <label>当前密码<input className="input field-input" type="password" value={passwords.currentPassword} onChange={event => setPasswords(value => ({...value, currentPassword: event.target.value}))} required autoComplete="current-password"/></label>
           <label>新密码<input className="input field-input" type="password" minLength="12" value={passwords.newPassword} onChange={event => setPasswords(value => ({...value, newPassword: event.target.value}))} required autoComplete="new-password"/></label>
@@ -582,4 +613,52 @@ export function AccountCenter({onProfileChange, onOpenModelSettings, setNotice, 
       </section>
     </div>
   </div>;
+}
+
+// 访客态的登录/注册面板：打开客户端直接进入工作台，认证动作全部收敛在个人中心。
+function AuthPanel({backendStatus, onRecheckBackend, onSignedIn}) {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [mode, setMode] = useState('login');
+  const [tenantCode, setTenantCode] = useState(() => globalThis.localStorage?.getItem('supportflow.tenantCode') || '');
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSubmitting(true);
+    const values = new FormData(event.currentTarget);
+    try {
+      let submittedTenantCode = values.get('tenantCode');
+      if (mode === 'customer-register') await registerCustomer({tenantCode:submittedTenantCode, email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
+      if (mode === 'tenant-register') {
+        const registration = await registerTenant({email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
+        submittedTenantCode = registration.tenantCode;
+      }
+      const tokens = await login({tenantCode:submittedTenantCode, email:values.get('email'), password:values.get('password')});
+      localStorage.setItem('supportflow.tenantCode', submittedTenantCode);
+      setTenantCode(submittedTenantCode);
+      localStorage.setItem('supportflow.accessToken', tokens.accessToken);
+      localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
+      onSignedIn(await getSession());
+    } catch (loginError) {
+      localStorage.removeItem('supportflow.accessToken');
+      localStorage.removeItem('supportflow.refreshToken');
+      setError(loginError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const customerRegistering = mode === 'customer-register';
+  const tenantRegistering = mode === 'tenant-register';
+  const registering = customerRegistering || tenantRegistering;
+  const backendConnected = backendStatus === 'connected';
+  const switchMode = nextMode => { setMode(nextMode); setError(''); };
+  const title = tenantRegistering ? '创建工作区管理员' : customerRegistering ? '创建消费者账户' : '登录服务工作台';
+  const description = tenantRegistering ? '首次使用只需填写姓名、邮箱和密码；系统会自动创建工作区并让你成为管理员。' : customerRegistering ? (tenantCode ? '将使用此 Mac 已保存的工作区注册，注册后会生成演示订单。' : '请先创建或切换到一个工作区，消费者注册会自动使用当前工作区。') : tenantCode ? '使用本机已保存的工作区登录；需要切换工作区时再输入代码。' : '使用租户代码、邮箱和密码进入消费者或坐席视图。';
+  const submitLabel = customerRegistering ? '注册并登录' : tenantRegistering ? '创建并登录' : '登录';
+  const submittingLabel = customerRegistering ? '注册中…' : tenantRegistering ? '创建中…' : '登录中…';
+  return <div className="account-center"><section className="panel auth-panel-card"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className={`backend-status ${backendStatus}`} role="status"><span/><div><strong>{backendStatus==='connected'?'本地服务已连接':backendStatus==='checking'?'正在检测本地服务':'本地服务未连接'}</strong><small>{backendStatus==='disconnected'?'请先启动 SupportFlow 后端，再重新检测。':'后端地址：http://localhost:8080'}</small></div>{backendStatus==='disconnected'&&<button type="button" onClick={onRecheckBackend}>重新检测</button>}</div><h1>{title}</h1><p>{description}</p><form onSubmit={submit}>{!tenantRegistering&&(tenantCode?<><input name="tenantCode" type="hidden" value={tenantCode}/><p className="safe-note">此 Mac 已保存当前工作区。<button type="button" className="text-link" onClick={()=>setTenantCode('')}>切换工作区</button></p></>:<label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization" placeholder="例如 my-store"/></label>)}{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary disabled={!backendConnected||submitting}>{submitting?submittingLabel:submitLabel}</Button></form>{registering?<button className="text-link" onClick={()=>switchMode('login')}>已有账户？返回登录</button>:<div className="login-links"><button className="text-link" onClick={()=>switchMode('tenant-register')}>首次使用？创建工作区</button><button className="text-link" onClick={()=>switchMode('customer-register')}>新用户？注册消费者账户</button></div>}<p className="safe-note"><ShieldCheck size={15}/>登录令牌和当前工作区标识只保存在此 Mac 的浏览器本地存储中；下次打开客户端会自动续登，直接进入工作台。</p></section></div>;
+}
+
+function Button({children, primary, onClick, disabled = false}) {
+  return <button type="submit" onClick={onClick} disabled={disabled} className={primary ? 'btn primary' : 'btn'}>{children}</button>;
 }

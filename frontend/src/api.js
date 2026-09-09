@@ -138,6 +138,28 @@ export async function login({ tenantCode, email, password }) {
   return response.json();
 }
 
+export async function refreshSession(refreshToken) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) throw new Error('登录已失效');
+  return response.json();
+}
+
+export async function revokeSession(refreshToken) {
+  try {
+    await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    // 网络不可用时也允许本地登出；服务端刷新令牌随后会自然过期。
+  }
+}
+
 async function registrationError(response, fallback) {
   const problem = await response.json().catch(() => null);
   switch (problem?.detail) {

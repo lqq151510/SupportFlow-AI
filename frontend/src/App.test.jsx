@@ -1,5 +1,5 @@
 import {fireEvent, render, screen} from '@testing-library/react';
-import {vi} from 'vitest';
+import {afterEach, vi} from 'vitest';
 import {App} from './App.jsx';
 import {
   getBackendHealth,
@@ -13,6 +13,7 @@ import {
   getApprovals,
   getTickets,
   organizeKnowledgeDocument,
+  refreshSession,
   updateModelConfig,
   updateMyProfile
 } from './api.js';
@@ -20,6 +21,7 @@ import {
 vi.mock('./api.js', async () => ({
   ...(await vi.importActual('./api.js')),
   getSession: vi.fn().mockResolvedValue(null),
+  refreshSession: vi.fn().mockRejectedValue(new Error('no refresh token')),
   getBackendHealth: vi.fn().mockResolvedValue({status: 'UP'}),
   getOperationsOverview: vi.fn().mockResolvedValue(null),
   getTickets: vi.fn().mockResolvedValue([]),
@@ -77,6 +79,33 @@ vi.mock('./api.js', async () => ({
   updateMyProfile: vi.fn(),
   changePassword: vi.fn(),
 }));
+
+afterEach(() => {
+  localStorage.clear();
+});
+
+test('opens the workbench directly for guests and hosts sign-in in the personal center', async () => {
+  vi.mocked(getSession).mockResolvedValueOnce(null);
+  render(<App/>);
+
+  // 访客也能看到完整工作台骨架，登录表单嵌在个人中心页内，而不是独立登录墙。
+  expect(await screen.findByRole('heading', {name: '登录服务工作台'})).toBeInTheDocument();
+  expect(screen.getByRole('button', {name: '概览'})).toBeInTheDocument();
+  expect(screen.getByRole('button', {name: /工单/})).toBeInTheDocument();
+  expect(screen.getAllByText('未登录').length).toBeGreaterThan(0);
+});
+
+test('restores the session silently via refresh token on startup', async () => {
+  localStorage.setItem('supportflow.refreshToken', 'stored-refresh-token');
+  vi.mocked(getSession).mockRejectedValueOnce(new Error('未登录')).mockResolvedValueOnce({role: 'TENANT_ADMIN'});
+  vi.mocked(refreshSession).mockResolvedValueOnce({accessToken: 'next-access', refreshToken: 'next-refresh'});
+  render(<App/>);
+
+  expect(await screen.findByRole('heading', {name: '工作台总览'})).toBeInTheDocument();
+  expect(refreshSession).toHaveBeenCalledWith('stored-refresh-token');
+  expect(localStorage.getItem('supportflow.accessToken')).toBe('next-access');
+  expect(localStorage.getItem('supportflow.refreshToken')).toBe('next-refresh');
+});
 
 test('switches between login and consumer registration modes', async () => {
   vi.mocked(getSession).mockResolvedValueOnce(null);

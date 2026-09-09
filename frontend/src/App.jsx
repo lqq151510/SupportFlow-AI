@@ -1,7 +1,7 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {addTicketComment, assignTicket, changeTicketStatus, claimTicket, createConversation, decideApproval, getApprovals, getAssignableMembers, getBackendHealth, getCustomerOrders, getOperationsOverview, getSession, getTicketComments, getTicketContext, getTickets, login, readGenerationEvents, registerCustomer, registerTenant, submitCustomerMessage} from './api.js';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {addTicketComment, assignTicket, changeTicketStatus, claimTicket, createConversation, decideApproval, getApprovals, getAssignableMembers, getBackendHealth, getCustomerOrders, getOperationsOverview, getSession, getTicketComments, getTicketContext, getTickets, readGenerationEvents, refreshSession, revokeSession, submitCustomerMessage} from './api.js';
 import {createRoot} from 'react-dom/client';
-import {LayoutDashboard, Ticket, Users, BookOpen, Workflow, BarChart3, Settings, Search, Bell, MessageSquare, ChevronDown, Plus, Upload, FileText, CheckCircle2, Clock3, AlertTriangle, ArrowRight, Bot, ShieldCheck, SlidersHorizontal, Send, ExternalLink, RefreshCcw, ClipboardList} from 'lucide-react';
+import {LayoutDashboard, Ticket, Users, BookOpen, Workflow, BarChart3, Settings, Search, Bell, MessageSquare, ChevronDown, Plus, Upload, FileText, CheckCircle2, Clock3, AlertTriangle, ArrowRight, Bot, ShieldCheck, SlidersHorizontal, Send, ExternalLink, RefreshCcw, ClipboardList, UserRound, LockKeyhole} from 'lucide-react';
 import './styles.css';
 import {KnowledgeWorkspace} from './KnowledgeWorkspace.jsx';
 import {ModelSettings} from './ModelSettings.jsx';
@@ -22,115 +22,63 @@ const tickets = [
 
 export function App(){
   const [session,setSession] = useState(undefined);
-  useEffect(()=>{getSession().then(setSession).catch(()=>localStorage.removeItem('supportflow.accessToken')).finally(()=>setSession(current=>current===undefined?null:current));},[]);
-  if(session===undefined)return <div className="login-shell">正在验证登录状态…</div>;
-  return session?<Workspace session={session} onSignedIn={setSession}/>:<LoginPage onSignedIn={setSession}/>;
+  useEffect(()=>{
+    // 启动即进工作台：有有效会话直接进入；会话过期时用 refresh token 静默续登；
+    // 两者都失败才进入访客态（仍停留在工作台，登录入口在个人中心）。
+    const restore = async () => {
+      try {
+        setSession(await getSession());
+        return;
+      } catch {}
+      const refreshToken = localStorage.getItem('supportflow.refreshToken');
+      if (refreshToken) {
+        try {
+          const tokens = await refreshSession(refreshToken);
+          localStorage.setItem('supportflow.accessToken', tokens.accessToken);
+          localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
+          setSession(await getSession());
+          return;
+        } catch {}
+      }
+      localStorage.removeItem('supportflow.accessToken');
+      localStorage.removeItem('supportflow.refreshToken');
+      setSession(null);
+    };
+    restore();
+  },[]);
+  if(session===undefined)return <div className="login-shell"><div className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><p className="safe-note">正在进入工作台…</p></div></div>;
+  return <Workspace session={session} onSignedIn={setSession}/>;
 }
 
 function Workspace({session,onSignedIn}){
-  const [page,setPage] = useState(session.role==='CUSTOMER'?'customers':'overview');
-  const previousPageRef = useRef(session.role==='CUSTOMER'?'customers':'overview');
+  const role = session?.role;
+  const [page,setPage] = useState(session?(role==='CUSTOMER'?'customers':'overview'):'account');
+  const previousPageRef = useRef(session?(role==='CUSTOMER'?'customers':'overview'):'account');
+  const justSignedInRef = useRef(false);
   const [profile,setProfile] = useState(null);
   const [selected,setSelected] = useState(tickets[0]);
   const [notice,setNotice] = useState('');
   const [overview,setOverview] = useState(null);
   const [workspaceTickets,setWorkspaceTickets] = useState(tickets);
-  const [ticketsLoaded,setTicketsLoaded] = useState(session.role==='CUSTOMER');
+  const [ticketsLoaded,setTicketsLoaded] = useState(role==='CUSTOMER');
   const [pendingApprovals,setPendingApprovals] = useState([]);
   const [searchQuery,setSearchQuery] = useState('');
   const [searchOpen,setSearchOpen] = useState(false);
   const [notificationOpen,setNotificationOpen] = useState(false);
   const [messageOpen,setMessageOpen] = useState(false);
-  const [loginModalOpen,setLoginModalOpen] = useState(false);
   const [accountMenuOpen,setAccountMenuOpen] = useState(false);
+  const [backendStatus,setBackendStatus] = useState('checking');
   const searchInputRef = useRef(null);
-  const nav = session.role==='CUSTOMER'?customerNav:agentNav;
-  useEffect(()=>{if(session.role==='CUSTOMER')return;getOperationsOverview().then(setOverview).catch(error=>setNotice(error.message));},[session.role]);
-  useEffect(()=>{if(session.role==='CUSTOMER')return;getTickets().then(items=>{const normalized=items.map(toWorkspaceTicket);setWorkspaceTickets(normalized);setSelected(normalized[0]||null);}).catch(error=>{setWorkspaceTickets([]);setSelected(null);setNotice(error.message);}).finally(()=>setTicketsLoaded(true));},[session.role]);
-  useEffect(()=>{if(session.role==='CUSTOMER')return;getApprovals().then(items=>setPendingApprovals(items.filter(item=>item.status==='PENDING'))).catch(error=>setNotice(error.message));},[session.role]);
-  useEffect(()=>{
-    const handleShortcut = event=>{
-      if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&session.role!=='CUSTOMER'){
-        event.preventDefault();
-        setSearchOpen(true);
-        searchInputRef.current?.focus();
-      }
-      if((event.metaKey||event.ctrlKey)&&event.key===','){
-        event.preventDefault();
-        setPage(current => {
-          if (current === 'account') {
-            return previousPageRef.current || (session.role==='CUSTOMER'?'customers':'overview');
-          } else {
-            previousPageRef.current = current;
-            return 'account';
-          }
-        });
-        setNotice('');
-      }
-    };
-    window.addEventListener('keydown',handleShortcut);
-    return ()=>window.removeEventListener('keydown',handleShortcut);
-  },[session.role]);
-  const navTo = (key)=>{
-    if (key === 'account') { setAccountMenuOpen(value=>!value); return; }
-    if (page !== 'account') previousPageRef.current = page;
-    setPage(key);
-    setNotice('');
-  };
-  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
-  const searchResults = normalizedSearch ? workspaceTickets.filter(ticket=>[ticket.id,ticket.title,ticket.customer,ticket.status,ticket.priority].some(value=>String(value).toLocaleLowerCase().includes(normalizedSearch))).slice(0,6) : [];
-  const openTicket = ticket=>{setSelected(ticket);setPage('tickets');setSearchQuery('');setSearchOpen(false);setNotice('')};
-  const handleSearchKeyDown = event=>{
-    if(event.key==='Escape'){setSearchQuery('');setSearchOpen(false);event.currentTarget.blur();}
-    if(event.key==='Enter'&&searchResults.length){event.preventDefault();openTicket(searchResults[0]);}
-  };
-  const initials = (profile?.displayName || '账户').trim().slice(0, 2).toLocaleUpperCase();
-  const accountName = profile?.displayName || '个人中心';
-  const activeTicketCount = ticketsLoaded ? workspaceTickets.filter(ticket=>!['RESOLVED','CLOSED'].includes(ticket.statusCode)&&!['已解决','已关闭'].includes(ticket.status)).length : 0;
-  const notificationCount = activeTicketCount + pendingApprovals.length;
-  return <div className="app-shell">
-    <header className="topbar">
-      <div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div>
-      {session.role!=='CUSTOMER'&&<div className="global-search" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setSearchOpen(false);}}><Search size={17}/><input ref={searchInputRef} aria-label="全局搜索工单" role="combobox" aria-expanded={searchOpen&&Boolean(normalizedSearch)} aria-controls="global-ticket-search-results" value={searchQuery} onFocus={()=>setSearchOpen(true)} onChange={event=>{setSearchQuery(event.target.value);setSearchOpen(true);}} onKeyDown={handleSearchKeyDown} placeholder="搜索工单编号、标题、客户…"/><kbd>⌘ K</kbd>{searchOpen&&normalizedSearch&&<div className="global-search-results" id="global-ticket-search-results" role="listbox">{searchResults.map(ticket=><button key={ticket.id} role="option" aria-selected="false" onMouseDown={event=>event.preventDefault()} onClick={()=>openTicket(ticket)}><span><strong>{ticket.id}</strong>{ticket.title}</span><small>{ticket.customer} · {ticket.status} · {ticket.priority}</small></button>)}{!searchResults.length&&<p>没有匹配的工单</p>}</div>}</div>}
-      <div className="top-actions">
-        <div className="top-action-popover">
-          <button className="top-icon-button" aria-label="查看通知" aria-expanded={notificationOpen} onClick={()=>{setNotificationOpen(value=>!value);setMessageOpen(false);}}><Bell size={19}/>{notificationCount>0&&<span className="notification-count">{notificationCount}</span>}</button>
-          {notificationOpen&&<div className="top-popover"><strong>待处理</strong><p>{notificationCount?`当前工作区有 ${notificationCount} 条待处理事项`:'当前工作区暂无待处理事项'}</p>{pendingApprovals.length>0&&<small>其中 {pendingApprovals.length} 条等待审批</small>}{activeTicketCount>0&&<small>{activeTicketCount} 个未关闭工单</small>}<button onClick={()=>{setNotificationOpen(false);navTo('automation');}}>查看审批与提醒</button></div>}
-        </div>
-        <div className="top-action-popover">
-          <button className="top-icon-button" aria-label="查看消息" aria-expanded={messageOpen} onClick={()=>{setMessageOpen(value=>!value);setNotificationOpen(false);}}><MessageSquare size={19}/></button>
-          {messageOpen&&<div className="top-popover"><strong>消息</strong><p>暂无未读会话消息</p><small>新的客户回复会显示在工单会话中。</small><button onClick={()=>{setMessageOpen(false);navTo('tickets');}}>打开工单会话</button></div>}
-        </div>
-        <div className="online"><i/>在线</div>
-        <button className="account-menu-trigger" aria-label="打开个人中心" onClick={()=>navTo('account')}><div className="avatar">{initials}</div><span>{accountName}</span><kbd className="topbar-shortcut-badge">⌘ ,</kbd><ChevronDown size={16}/></button>
-      </div>
-    </header>
-    <div className="workspace"><aside className="sidebar"><nav>{nav.map(([label,key,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>navTo(key)}><Icon size={19}/><span>{label}</span>{key==='tickets'&&<b>{workspaceTickets.length}</b>}</button>)}</nav><div className="vector-health"><div className="health-title">向量存储健康度 <CheckCircle2 size={15}/></div><strong>按知识库查看</strong><p>实时状态请进入知识库管理</p><div className="progress"><span style={{width:'100%'}}/></div></div><button className={'tenant '+(page==='account'?'active':'')} onClick={()=>navTo('account')}><div className="avatar">{initials}</div><div><strong>{profile?.tenantName || '当前工作区'}</strong><small>{profile?.role || session.role}</small></div><ChevronDown size={16}/></button></aside><main className="main-content">{page==='overview'&&<Overview onNav={navTo} overview={overview} tickets={workspaceTickets}/>} {page==='knowledge'&&<KnowledgeWorkspace setNotice={setNotice}/>} {page==='tickets'&&<Tickets tickets={workspaceTickets} selected={selected} setSelected={setSelected} setWorkspaceTickets={setWorkspaceTickets} notice={notice} setNotice={setNotice}/>} {page==='customers'&&<Customer/>} {page==='analytics'&&<AnalyticsWorkspace overview={overview}/>} {page==='settings'&&<ModelSettings setNotice={setNotice}/>} {page==='automation'&&<Approvals notice={notice} setNotice={setNotice}/>} {page==='account'&&<AccountCenter session={session} setNotice={setNotice} onProfileChange={setProfile} onOpenModelSettings={()=>navTo('settings')}/>}</main></div>
-    {accountMenuOpen&&<div className="account-dropdown" role="menu"><button role="menuitem" onClick={()=>{setAccountMenuOpen(false);setPage('account');}}>个人中心</button><button role="menuitem" onClick={()=>{setAccountMenuOpen(false);setPage('settings');}}>设置</button><button role="menuitem" onClick={()=>{setAccountMenuOpen(false);setLoginModalOpen(true);}}>登录</button><button role="menuitem" onClick={()=>{localStorage.removeItem('supportflow.accessToken');localStorage.removeItem('supportflow.refreshToken');setAccountMenuOpen(false);onSignedIn(null);}}>退出登录</button></div>}
-    {loginModalOpen&&<div className="login-modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setLoginModalOpen(false);}}><section className="login-modal" role="dialog" aria-modal="true" aria-label="登录"><button className="login-modal-close" aria-label="关闭登录" onClick={()=>setLoginModalOpen(false)}>×</button><LoginPage onSignedIn={signedIn=>{setLoginModalOpen(false);onSignedIn(signedIn);}}/></section></div>}
-    {notice&&<div className="toast"><CheckCircle2 size={17}/>{notice}</div>}
-  </div>
-}
-
-const priorityLabel=(priority)=>({LOW:'低',NORMAL:'普通',HIGH:'高',URGENT:'紧急'})[priority]||priority;
-const statusLabel=(status)=>({NEW:'待处理',OPEN:'处理中',PENDING_CUSTOMER:'等待客户',PENDING_APPROVAL:'待审批',RESOLVED:'已解决',CLOSED:'已关闭'})[status]||status;
-const slaLabel=(dueAt)=>{const minutes=Math.round((new Date(dueAt).getTime()-Date.now())/60000);return minutes<0?`已超时 ${Math.abs(minutes)} 分钟`:`剩余 ${minutes} 分钟`;};
-const toWorkspaceTicket=(ticket)=>({rawId:ticket.id,id:`TKT-${ticket.id}`,title:ticket.title,customer:`客户 #${ticket.customerId}`,priority:priorityLabel(ticket.priority),status:statusLabel(ticket.status),statusCode:ticket.status,assignedMembershipId:ticket.assignedMembershipId,sla:slaLabel(ticket.resolutionDueAt)});
-
-function LoginPage({onSignedIn}) {
-  const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [mode, setMode] = useState('login');
-  const [tenantCode, setTenantCode] = useState(() => globalThis.localStorage?.getItem('supportflow.tenantCode') || '');
-  const [backendStatus, setBackendStatus] = useState('checking');
-  const checkBackend = async (retryInDesktop = false) => {
-    setBackendStatus('checking');
+  const nav = role==='CUSTOMER'?customerNav:agentNav;
+  const checkBackend = useCallback(async (options={}) => {
+    const {retryInDesktop=false, silent=false} = options;
+    if(!silent) setBackendStatus('checking');
     try {
       await getBackendHealth();
       setBackendStatus('connected');
     } catch {
       // 打包版里内嵌后端可能首启失败：仅在用户主动重新检测时，先触发
-      // Tauri 侧的重启命令，再复查一次；挂载时的首次检测保持单次语义。
+      // Tauri 侧的重启命令，再复查一次；静默轮询不做重启。
       if (retryInDesktop && globalThis.__TAURI_INTERNALS__) {
         try {
           await globalThis.__TAURI_INTERNALS__.invoke('restart_backend');
@@ -141,46 +89,104 @@ function LoginPage({onSignedIn}) {
       }
       setBackendStatus('disconnected');
     }
-  };
-  useEffect(() => {
+  },[]);
+  useEffect(()=>{
     checkBackend();
-  }, []);
-  const submit = async (event) => {
-    event.preventDefault();
-    setError('');
-    setSubmitting(true);
-    const values = new FormData(event.currentTarget);
-    try {
-      let submittedTenantCode = values.get('tenantCode');
-      if (mode === 'customer-register') await registerCustomer({tenantCode:submittedTenantCode, email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
-      if (mode === 'tenant-register') {
-        const registration = await registerTenant({email:values.get('email'), displayName:values.get('displayName'), password:values.get('password')});
-        submittedTenantCode = registration.tenantCode;
-      }
-      const tokens = await login({tenantCode:submittedTenantCode, email:values.get('email'), password:values.get('password')});
-      localStorage.setItem('supportflow.tenantCode', submittedTenantCode);
-      setTenantCode(submittedTenantCode);
-      localStorage.setItem('supportflow.accessToken', tokens.accessToken);
-      localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
-      onSignedIn(await getSession());
-    } catch (loginError) {
-      localStorage.removeItem('supportflow.accessToken');
-      localStorage.removeItem('supportflow.refreshToken');
-      setError(loginError.message);
-    } finally {
-      setSubmitting(false);
+    const timer = setInterval(()=>checkBackend({silent:true}), 20000);
+    return ()=>clearInterval(timer);
+  },[checkBackend]);
+  // 会话变化时的落位：退出登录回到个人中心；登录成功进入对应工作台首页。
+  useEffect(()=>{
+    if(!session){ setPage('account'); return; }
+    if(justSignedInRef.current){
+      justSignedInRef.current = false;
+      setPage(session.role==='CUSTOMER'?'customers':'overview');
     }
+  },[session]);
+  useEffect(()=>{if(!session||role==='CUSTOMER')return;getOperationsOverview().then(setOverview).catch(error=>setNotice(error.message));},[session,role]);
+  useEffect(()=>{if(!session||role==='CUSTOMER')return;getTickets().then(items=>{const normalized=items.map(toWorkspaceTicket);setWorkspaceTickets(normalized);setSelected(normalized[0]||null);}).catch(error=>{setWorkspaceTickets([]);setSelected(null);setNotice(error.message);}).finally(()=>setTicketsLoaded(true));},[session,role]);
+  useEffect(()=>{if(!session||role==='CUSTOMER')return;getApprovals().then(items=>setPendingApprovals(items.filter(item=>item.status==='PENDING'))).catch(error=>setNotice(error.message));},[session,role]);
+  useEffect(()=>{
+    const handleShortcut = event=>{
+      if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&session&&role!=='CUSTOMER'){
+        event.preventDefault();
+        setSearchOpen(true);
+        searchInputRef.current?.focus();
+      }
+      if((event.metaKey||event.ctrlKey)&&event.key===','){
+        event.preventDefault();
+        setPage(current => {
+          if (current === 'account') {
+            return previousPageRef.current || (session?(role==='CUSTOMER'?'customers':'overview'):'account');
+          } else {
+            previousPageRef.current = current;
+            return 'account';
+          }
+        });
+        setNotice('');
+      }
+    };
+    window.addEventListener('keydown',handleShortcut);
+    return ()=>window.removeEventListener('keydown',handleShortcut);
+  },[session,role]);
+  const navTo = (key)=>{
+    if (key === 'account') { setAccountMenuOpen(value=>!value); return; }
+    if (page !== 'account') previousPageRef.current = page;
+    setPage(key);
+    setNotice('');
   };
-  const customerRegistering = mode === 'customer-register';
-  const tenantRegistering = mode === 'tenant-register';
-  const registering = customerRegistering || tenantRegistering;
-  const backendConnected = backendStatus === 'connected';
-  const switchMode = nextMode => { setMode(nextMode); setError(''); };
-  const title = tenantRegistering ? '创建工作区管理员' : customerRegistering ? '创建消费者账户' : '登录服务工作台';
-  const description = tenantRegistering ? '首次使用只需填写姓名、邮箱和密码；系统会自动创建工作区并让你成为管理员。' : customerRegistering ? (tenantCode ? '将使用此 Mac 已保存的工作区注册，注册后会生成演示订单。' : '请先创建或切换到一个工作区，消费者注册会自动使用当前工作区。') : tenantCode ? '使用本机已保存的工作区登录；需要切换工作区时再输入代码。' : '使用租户代码、邮箱和密码进入消费者或坐席视图。';
-  const submitLabel = customerRegistering ? '注册并登录' : tenantRegistering ? '创建并登录' : '登录';
-  const submittingLabel = customerRegistering ? '注册中…' : tenantRegistering ? '创建中…' : '登录中…';
-  return <main className="login-shell"><section className="panel login-panel"><div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div><div className={`backend-status ${backendStatus}`} role="status"><span/><div><strong>{backendStatus==='connected'?'本地服务已连接':backendStatus==='checking'?'正在检测本地服务':'本地服务未连接'}</strong><small>{backendStatus==='disconnected'?'请先启动 SupportFlow 后端，再重新检测。':'后端地址：http://localhost:8080'}</small></div>{backendStatus==='disconnected'&&<button type="button" onClick={()=>checkBackend(true)}>重新检测</button>}</div><h1>{title}</h1><p>{description}</p><form onSubmit={submit}>{!tenantRegistering&&(tenantCode?<><input name="tenantCode" type="hidden" value={tenantCode}/><p className="safe-note">此 Mac 已保存当前工作区。<button type="button" className="text-link" onClick={()=>setTenantCode('')}>切换工作区</button></p></>:<label>租户代码<input className="input field" name="tenantCode" required autoComplete="organization" placeholder="例如 my-store"/></label>)}{registering&&<label>显示名称<input className="input field" name="displayName" required autoComplete="name"/></label>}<label>邮箱<input className="input field" name="email" type="email" required autoComplete="email"/></label><label>密码<input className="input field" name="password" type="password" required minLength="12" autoComplete={registering?'new-password':'current-password'}/></label>{error&&<p className="warning"><AlertTriangle size={15}/>{error}</p>}<Button primary disabled={!backendConnected||submitting}>{submitting?submittingLabel:submitLabel}</Button></form>{registering?<button className="text-link" onClick={()=>switchMode('login')}>已有账户？返回登录</button>:<div className="login-links"><button className="text-link" onClick={()=>switchMode('tenant-register')}>首次使用？创建工作区</button><button className="text-link" onClick={()=>switchMode('customer-register')}>新用户？注册消费者账户</button></div>}<p className="safe-note"><ShieldCheck size={15}/>登录令牌和当前工作区标识只保存在此 Mac 的浏览器本地存储中。</p></section></main>;
+  const handleSignedIn = signedIn => {
+    justSignedInRef.current = Boolean(signedIn);
+    onSignedIn(signedIn);
+  };
+  const handleLogout = () => {
+    revokeSession(localStorage.getItem('supportflow.refreshToken'));
+    localStorage.removeItem('supportflow.accessToken');
+    localStorage.removeItem('supportflow.refreshToken');
+    setAccountMenuOpen(false);
+    onSignedIn(null);
+  };
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const searchResults = normalizedSearch ? workspaceTickets.filter(ticket=>[ticket.id,ticket.title,ticket.customer,ticket.status,ticket.priority].some(value=>String(value).toLocaleLowerCase().includes(normalizedSearch))).slice(0,6) : [];
+  const openTicket = ticket=>{setSelected(ticket);setPage('tickets');setSearchQuery('');setSearchOpen(false);setNotice('')};
+  const handleSearchKeyDown = event=>{
+    if(event.key==='Escape'){setSearchQuery('');setSearchOpen(false);event.currentTarget.blur();}
+    if(event.key==='Enter'&&searchResults.length){event.preventDefault();openTicket(searchResults[0]);}
+  };
+  const initials = (session ? (profile?.displayName || '账户') : '访').trim().slice(0, 2).toLocaleUpperCase();
+  const accountName = session ? (profile?.displayName || '个人中心') : '未登录';
+  const activeTicketCount = ticketsLoaded ? workspaceTickets.filter(ticket=>!['RESOLVED','CLOSED'].includes(ticket.statusCode)&&!['已解决','已关闭'].includes(ticket.status)).length : 0;
+  const notificationCount = activeTicketCount + pendingApprovals.length;
+  return <div className="app-shell">
+    <header className="topbar">
+      <div className="brand"><span className="brand-mark">◉</span><span>SupportFlow AI</span></div>
+      {session&&role!=='CUSTOMER'&&<div className="global-search" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setSearchOpen(false);}}><Search size={17}/><input ref={searchInputRef} aria-label="全局搜索工单" role="combobox" aria-expanded={searchOpen&&Boolean(normalizedSearch)} aria-controls="global-ticket-search-results" value={searchQuery} onFocus={()=>setSearchOpen(true)} onChange={event=>{setSearchQuery(event.target.value);setSearchOpen(true);}} onKeyDown={handleSearchKeyDown} placeholder="搜索工单编号、标题、客户…"/><kbd>⌘ K</kbd>{searchOpen&&normalizedSearch&&<div className="global-search-results" id="global-ticket-search-results" role="listbox">{searchResults.map(ticket=><button key={ticket.id} role="option" aria-selected="false" onMouseDown={event=>event.preventDefault()} onClick={()=>openTicket(ticket)}><span><strong>{ticket.id}</strong>{ticket.title}</span><small>{ticket.customer} · {ticket.status} · {ticket.priority}</small></button>)}{!searchResults.length&&<p>没有匹配的工单</p>}</div>}</div>}
+      <div className="top-actions">
+        {session&&<div className="top-action-popover">
+          <button className="top-icon-button" aria-label="查看通知" aria-expanded={notificationOpen} onClick={()=>{setNotificationOpen(value=>!value);setMessageOpen(false);}}><Bell size={19}/>{notificationCount>0&&<span className="notification-count">{notificationCount}</span>}</button>
+          {notificationOpen&&<div className="top-popover"><strong>待处理</strong><p>{notificationCount?`当前工作区有 ${notificationCount} 条待处理事项`:'当前工作区暂无待处理事项'}</p>{pendingApprovals.length>0&&<small>其中 {pendingApprovals.length} 条等待审批</small>}{activeTicketCount>0&&<small>{activeTicketCount} 个未关闭工单</small>}<button onClick={()=>{setNotificationOpen(false);navTo('automation');}}>查看审批与提醒</button></div>}
+        </div>}
+        {session&&<div className="top-action-popover">
+          <button className="top-icon-button" aria-label="查看消息" aria-expanded={messageOpen} onClick={()=>{setMessageOpen(value=>!value);setNotificationOpen(false);}}><MessageSquare size={19}/></button>
+          {messageOpen&&<div className="top-popover"><strong>消息</strong><p>暂无未读会话消息</p><small>新的客户回复会显示在工单会话中。</small><button onClick={()=>{setMessageOpen(false);navTo('tickets');}}>打开工单会话</button></div>}
+        </div>}
+        <div className={'online'+(backendStatus==='connected'?'':' offline')} role="status"><i/>{backendStatus==='connected'?'在线':backendStatus==='checking'?'检测中':'服务离线'}</div>
+        <button className="account-menu-trigger" aria-label="打开个人中心" onClick={()=>navTo('account')}><div className="avatar">{initials}</div><span>{accountName}</span><kbd className="topbar-shortcut-badge">⌘ ,</kbd><ChevronDown size={16}/></button>
+      </div>
+    </header>
+    <div className="workspace"><aside className="sidebar"><nav>{nav.map(([label,key,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>navTo(key)}><Icon size={19}/><span>{label}</span>{key==='tickets'&&<b>{workspaceTickets.length}</b>}</button>)}</nav><div className="vector-health"><div className="health-title">向量存储健康度 <CheckCircle2 size={15}/></div><strong>按知识库查看</strong><p>实时状态请进入知识库管理</p><div className="progress"><span style={{width:'100%'}}/></div></div><button className={'tenant '+(page==='account'?'active':'')} onClick={()=>navTo('account')}><div className="avatar">{initials}</div><div><strong>{profile?.tenantName || (session?'当前工作区':'未登录')}</strong><small>{profile?.role || session?.role || '点击前往登录'}</small></div><ChevronDown size={16}/></button></aside><main className="main-content">{page==='account'?<AccountCenter session={session} setNotice={setNotice} onProfileChange={setProfile} onOpenModelSettings={()=>navTo('settings')} backendStatus={backendStatus} onRecheckBackend={()=>checkBackend({retryInDesktop:true})} onSignedIn={handleSignedIn}/>:!session?<GuestGate onGoAccount={()=>navTo('account')}/>:<> {page==='overview'&&<Overview onNav={navTo} overview={overview} tickets={workspaceTickets}/>} {page==='knowledge'&&<KnowledgeWorkspace setNotice={setNotice}/>} {page==='tickets'&&<Tickets tickets={workspaceTickets} selected={selected} setSelected={setSelected} setWorkspaceTickets={setWorkspaceTickets} notice={notice} setNotice={setNotice}/>} {page==='customers'&&<Customer/>} {page==='analytics'&&<AnalyticsWorkspace overview={overview}/>} {page==='settings'&&<ModelSettings setNotice={setNotice}/>} {page==='automation'&&<Approvals notice={notice} setNotice={setNotice}/>}</>}</main></div>
+    {accountMenuOpen&&<div className="account-dropdown" role="menu"><button role="menuitem" onClick={()=>{setAccountMenuOpen(false);setPage('account');}}>个人中心</button><button role="menuitem" onClick={()=>{setAccountMenuOpen(false);setPage('settings');}}>设置</button>{session?<button role="menuitem" onClick={handleLogout}>退出登录</button>:<button role="menuitem" onClick={()=>{setAccountMenuOpen(false);setPage('account');}}>前往登录</button>}</div>}
+    {notice&&<div className="toast"><CheckCircle2 size={17}/>{notice}</div>}
+  </div>
+}
+
+const priorityLabel=(priority)=>({LOW:'低',NORMAL:'普通',HIGH:'高',URGENT:'紧急'})[priority]||priority;
+const statusLabel=(status)=>({NEW:'待处理',OPEN:'处理中',PENDING_CUSTOMER:'等待客户',PENDING_APPROVAL:'待审批',RESOLVED:'已解决',CLOSED:'已关闭'})[status]||status;
+const slaLabel=(dueAt)=>{const minutes=Math.round((new Date(dueAt).getTime()-Date.now())/60000);return minutes<0?`已超时 ${Math.abs(minutes)} 分钟`:`剩余 ${minutes} 分钟`;};
+const toWorkspaceTicket=(ticket)=>({rawId:ticket.id,id:`TKT-${ticket.id}`,title:ticket.title,customer:`客户 #${ticket.customerId}`,priority:priorityLabel(ticket.priority),status:statusLabel(ticket.status),statusCode:ticket.status,assignedMembershipId:ticket.assignedMembershipId,sla:slaLabel(ticket.resolutionDueAt)});
+
+function GuestGate({onGoAccount}) {
+  return <><PageHeader title="登录后可用" sub="该功能区保存在你的工作区中，需要账户会话"/><section className="panel guest-gate"><div className="guest-gate-icon"><LockKeyhole size={26}/></div><h2>登录后解锁工单协同、知识库与审批</h2><p>打开客户端即进入工作台；前往个人中心登录既有账户，或直接创建新的工作区。</p><Button primary onClick={onGoAccount}>前往个人中心登录</Button></section></>;
 }
 
 function Approvals({setNotice}) {
