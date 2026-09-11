@@ -16,3 +16,17 @@ frontend/playwright-report/
 
 *.log
 .codex/
+
+# --- Python（阶段 2 起）---
+.venv/
+__pycache__/
+*.py[cod]
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- WorkBuddy 本地工作记忆（约定不入库）---
+.workbuddy/

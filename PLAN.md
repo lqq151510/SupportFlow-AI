@@ -1,578 +1,408 @@
-# SupportFlow AI 企业级电商售后客服与工单协同平台
+# SupportFlow Agent 智能客服工单助手
 
 ## 项目定位
 
-新建独立仓库 `/Users/liuyongze/Documents/SupportFlow-AI`，不复用或修改现有 `Ai-Agent`。项目采用模块化单体，重点展示 Java 企业后端、AI 多协议接入、RAG、RocketMQ 可靠消息、多租户隔离、工单 SLA 和高风险操作审批。
+面向**精简电商售后场景**的智能客服工单助手，覆盖配送咨询、退换货政策、商品使用和投诉处理四类高频问题，形成一条完整的人工在环闭环：
 
-核心闭环：
+**提交工单 → 内容清洗与分类 → 检索知识库与历史工单 → 按需调用查询工具 → 生成带引用的草稿 → 人工审核回复及操作 → 保存处理结果与运行记录。**
 
 ```mermaid
 flowchart LR
-    Customer["消费者注册登录"] --> Chat["客服会话"]
-    Chat --> Retrieval["ES 混合检索"]
-    Retrieval --> Model["OpenAI / Anthropic API"]
-    Model --> Tool{"工具风险等级"}
-    Tool -->|只读| Commerce["订单与物流查询"]
-    Tool -->|低风险| Ticket["创建工单或转人工"]
-    Tool -->|高风险| Approval["坐席审批"]
-    Approval --> MQ["RocketMQ 可靠执行"]
-    MQ --> Refund["退款或补偿"]
-    Ticket --> Agent["坐席工作台"]
-    Agent --> Resolve["处理并关闭"]
+    Submit["提交工单"] --> Clean["内容清洗"]
+    Clean --> Classify["标准化分类"]
+    Classify --> Retrieve["混合检索<br/>FAQ / 文档 / 历史工单"]
+    Retrieve --> Tools{"按需调用查询工具"}
+    Tools --> Draft["生成带引用草稿"]
+    Draft --> Verify{"引用归属校验"}
+    Verify -->|通过| Review["坐席审核 / 编辑"]
+    Verify -->|检索为空或证据不足| Human["转人工"]
+    Review --> Publish["发布正式回复"]
+    Review --> Propose["申请关闭 / 转派"]
+    Propose --> Approve{"人工审批"}
+    Approve -->|批准| Execute["执行并写入执行账本"]
+    Approve -->|拒绝 / 过期 / 版本变化| Review
+    Publish --> Trace["保存处理结果与运行记录"]
+    Execute --> Trace
+    Human --> Review
 ```
 
-明确不做完整商城、支付系统、微信客服、电话客服、模型训练、自动执行退款、微服务拆分和 Kubernetes 部署。
+### 明确不做
 
-## 技术基线
+桌面打包（Tauri / jpackage）、多租户、复杂 SLA、完整商城、支付系统、自动退款或补偿执行、微信与电话客服、外部消息平台对接、模型训练与本地模型运行时、微服务拆分、Kubernetes 与生产云部署。
 
-- 后端：Java 21、Spring Boot 3.5.14、Spring MVC、虚拟线程、Spring Security、MyBatis-Plus、Flyway、Spring Modulith。
-- AI：统一 `ModelGateway`，通过 API 支持 `OPENAI_COMPATIBLE` 和 `ANTHROPIC_MESSAGES`；Embedding 首版使用 OpenAI-compatible 协议。
-- 数据：MySQL 8.4 LTS、Redis 7、Elasticsearch 8、MinIO。
-- 消息：RocketMQ 5，使用事务外盒、延时消息、消费幂等和死信队列。
-- 前端：React 19、TypeScript、Vite，一个应用内提供消费者端和坐席端路由。
-- 测试：JUnit 5、Mockito、Testcontainers、WireMock、Playwright、k6。
-- 可观测性：Micrometer、Prometheus、Grafana、结构化日志和全链路 `requestId`。
+新版为**独立数据库与独立演示数据**，旧 Java 版本封存保留，不做 API 兼容层。
 
-后端使用 Spring MVC 处理业务事务，开启 Java 21 虚拟线程；模型流式 API 使用 `WebClient`，不在 Reactor 线程执行 MyBatis 或其他阻塞数据库操作。
+## 技术栈基线
 
-## 模块设计
+| 部分 | 选型 |
+|---|---|
+| Python 工程 | Python 3.13、uv 管理依赖与虚拟环境、Pydantic v2 |
+| 后端 | FastAPI、SQLAlchemy 2、Alembic、psycopg 3 |
+| Agent | LangGraph、PostgreSQL 持久化检查点 |
+| 数据与检索 | PostgreSQL 17、pgvector、中文分词后的全文检索 |
+| 前端 | React、TypeScript、Vite |
+| 验证 | pytest、pytest-cov、HTTPX / respx、真实 PostgreSQL 集成测试、Playwright |
+| 部署 | Docker Compose：网页、API、Worker、数据库 |
 
-统一目录结构：
+依赖在工程骨架阶段完成兼容性验证并锁定版本，开发环境与 CI **共用同一套锁文件**（`uv.lock`）。运行时不引入 MySQL、Redis、Elasticsearch、MinIO 或 RocketMQ——上一代架构的这五类中间件全部由 PostgreSQL（含 pgvector 与本地持久化卷）替代，以压缩部署与验收成本。
+
+## 目录结构与模块边界
 
 ```text
-backend/src/main/java/com/lqq/supportflow/
-├── identity/
-├── model/
-├── commerce/
-├── knowledge/
-├── conversation/
-├── action/
-├── ticket/
-├── eventing/
-├── evaluation/
-├── shared/
-└── bootstrap/
+src/supportflow/
+├── identity/       用户、会话、角色与访问控制
+├── ticket/         工单、内容清洗、分类、状态机
+├── knowledge/      文档与历史导入、切片、索引、检索、引用
+├── model/          聊天与 Embedding 网关、密钥加密、连接测试
+├── agent/          LangGraph 状态图、工具注册表、运行记录
+├── approval/       操作申请、审批与执行账本
+├── evaluation/     评测集、评测运行与报告导出
+├── shared/         配置、日志、错误协议、幂等、数据库、SSE
+└── bootstrap/      FastAPI 装配、依赖注入、Worker 入口
 ```
 
-每个业务模块内部固定采用：
+每个模块内部固定采用四层，依赖方向为 `api -> application -> domain <- infrastructure`：
 
 ```text
-api/              REST、SSE、请求校验
+api/              HTTP、SSE、请求校验、权限装饰器
 application/      用例编排、事务边界
-domain/           聚合、状态机、策略、端口
-infrastructure/   MyBatis、Redis、ES、MQ、外部 API
+domain/           实体、状态机、规则、端口协议
+infrastructure/   SQLAlchemy、pgvector、外部模型 SDK、文件存储
 ```
 
-依赖方向固定为 `api -> application -> domain <- infrastructure`。跨模块只能调用公开 application 接口或发布领域事件，禁止直接访问其他模块的 Mapper、Entity 或内部 Service。通过 Spring Modulith 和 ArchUnit 测试强制边界。
+- `api` 只处理协议适配、认证与请求校验，不承载业务规则。
+- `application` 编排用例并持有事务边界，是跨模块调用的唯一入口。
+- `domain` 保存规则、状态机与端口（`Protocol`），不依赖任何框架。
+- `infrastructure` 实现数据库、文件存储与模型 SDK 适配。
+- 跨模块只能调用对方公开的 `application` 服务接口或消费领域事件；**禁止直接引用其他模块的 ORM 模型、Repository 或内部服务**。
+- Agent 通过明确的服务接口调用能力，不直接操作任意数据库表；工具实现位于所属模块的 `application` 层，由 `agent` 模块经端口调用。
 
-### 1. Identity 模块
+边界用自动化测试固化（自定义 import 检查或 `import-linter` 契约），新增模块或跨模块依赖必须同步补充契约测试。
 
-负责租户、用户、登录和权限。
+## 角色、会话与访问控制
 
-- 租户管理员注册时一次性创建租户、管理员用户和成员关系。
-- 消费者通过 `tenantCode + email + password` 注册。
-- 坐席和主管账号由租户管理员创建。
-- 固定角色：`TENANT_ADMIN`、`SUPERVISOR`、`AGENT`、`CUSTOMER`。
-- JWT access token 有效期 15 分钟，refresh token 有效期 7 天并轮换。
-- Refresh token 只保存 SHA-256 哈希，登出、改密和禁用用户时立即吊销。
-- `tenantId`、`membershipId` 和角色来自认证上下文，普通接口不接受客户端传入的 `tenantId`。
-- MyBatis-Plus 租户拦截器自动追加 `tenant_id`，原生 SQL 必须通过专用审计测试。
+单工作区，不引入 `tenant_id`。三类角色：
 
-### 2. Model 模块
+| 角色 | 能力 |
+|---|---|
+| 用户 `USER` | 提交工单、查看自己的工单及已发布的正式回复 |
+| 坐席 `AGENT` | 处理工作区全部工单、审核与编辑草稿、发布正式回复、发起及审批操作 |
+| 管理员 `ADMIN` | 坐席全部能力，另加账号管理、知识库管理、模型配置与评测 |
 
-负责模型配置、协议适配、流式事件归一化和密钥保护。
+- 采用**服务端会话**：会话令牌以 HttpOnly + Secure + SameSite Cookie 下发，服务端只保存令牌哈希。
+- 所有写请求校验 **CSRF token**（双提交 Cookie 或同步令牌，二者取其一并在契约中固定）。
+- 越权边界必须由服务端判定；客户端传入的角色、负责人、工单归属一律忽略并以会话上下文为准。
+- 提供三类演示账号；首版由管理员创建账号，不开放自助注册。
 
-公开领域端口：
+## 核心实现
 
-```java
-interface ChatModelGateway {
-    Flux<ModelEvent> stream(ChatModelRequest request);
-}
+### 1. 工单清洗与分类
 
-interface EmbeddingGateway {
-    List<float[]> embedBatch(EmbeddingRequest request);
-}
+工单**同时保存三份内容**：受权限保护的原文、清洗文本、清洗版本号。清洗规则：
+
+- 去除 HTML 标签与实体、无效空白（连续空行、全角空格）、重复签名块与邮件引用行。
+- **保留影响判断的实体**：订单编号、时间、金额、商品名称与问题描述，清洗不得改写数值。
+- 清洗规则变更时递增 `clean_version`，历史工单按当次版本记录，保证可复现。
+
+分类固定为六个枚举值：`配送物流`、`退换货政策`、`商品使用`、`账号问题`、`投诉建议`、`其他`。分类由模型输出**结构化结果**（枚举 + 置信度 + 依据片段），非法枚举值视为模型失败，不猜测、不落库。
+
+### 2. 知识与历史导入
+
+支持的输入：
+
+| 类型 | 格式 | 说明 |
+|---|---|---|
+| 知识文档 | FAQ CSV、Markdown、TXT、文本型 PDF、DOCX | 扫描版 PDF **明确提示暂不支持 OCR** |
+| 历史工单 | CSV、JSONL | 仅导入已关闭且具有正式回复的记录 |
+
+导入流水线：`校验 → 解析 → 切片 → 向量化 → 索引`，每一步记录进度与**稳定错误码**，失败任务可重试且重试幂等。按**内容哈希去重**，同一内容不重复入库。
+
+- 原文件保存在独立持久化卷（宿主机目录挂载），正文、片段、来源位置与索引版本保存在 PostgreSQL。
+- 历史检索使用**脱敏后的问题与人工确认的处理结果**；待审草稿、未关闭工单、无正式回复的工单**不进入**历史索引。
+- 已关闭且具有正式回复的新版工单可以进入历史索引，作为后续检索语料。
+
+### 3. RAG 与引用
+
+检索采用全文与向量的混合方案，沿用 pgvector 官方说明的融合方式（[pgvector 混合检索说明](https://github.com/pgvector/pgvector#hybrid-search)）：
+
+1. 中文分词后写入 `tsvector`，全文检索召回 Top 20。
+2. pgvector 向量检索召回 Top 20。
+3. 使用 **Reciprocal Rank Fusion（RRF）** 融合两路结果。
+4. 融合后选取 **Top 5** 作为生成依据。
+5. 检索门槛（RRF 融合分数阈值）在**开发集**上校准后冻结。
+
+每条引用必须包含：来源类型、来源 ID、版本、片段 ID、页码或章节、证据摘录。
+
+- **生成前**过滤权限与有效版本，不检索无权访问或已失效的内容。
+- **生成后**校验每条引用确实来自本次检索结果；凭空引用即判定失败。
+- 检索为空、证据不足或引用无法校验时**转人工**，不生成无证据结论。
+
+聊天模型与 Embedding 模型**分别配置**。索引记录所用 Embedding 模型与维度；切换模型后**创建新的索引版本**，绝不混用不同向量。向量列维度随索引版本确定，跨版本检索不交叉。
+
+### 4. Agent 工作流与工具调用
+
+显式状态图，节点固定为：
+
+```text
+清洗 → 分类 → 检索 → 按需查询工单 → 生成草稿 → 校验引用 → 可选操作审批 → 执行已批准动作 → 记录结果
 ```
 
-首版协议：
+工具注册表：
 
-- `OPENAI_COMPATIBLE`：Chat Completions、流式 SSE、tool calls、Embeddings。
-- `ANTHROPIC_MESSAGES`：Messages API、流式事件、tool use；不承担 Embedding。
+| 工具 | 风险等级 | 行为 |
+|---|---|---|
+| 知识检索 | `READ_ONLY` | 直接执行 |
+| 历史工单检索 | `READ_ONLY` | 直接执行 |
+| 查询当前工单 | `READ_ONLY` | 直接执行 |
+| 生成回复 | `LOW_RISK` | 产出草稿，不发布 |
+| 申请关闭 | `HIGH_RISK` | 仅创建审批请求 |
+| 申请转派 | `HIGH_RISK` | 仅创建审批请求 |
 
-统一模型事件：
+- 模型通过**结构化 Tool Calling** 选择工具与参数；执行器统一校验参数、权限与调用范围。
+- 身份与当前工单由**服务端注入**，模型无法指定任意工单 ID。
+- 非法参数与权限错误**不重试**；超时、限流与临时服务错误最多尝试 **3 次**并采用指数退避。
+- 单次运行默认最多调用工具 **8 次**，单次模型请求超时 **30 秒**。
+- 持续失败进入 `NEEDS_HUMAN` 人工处理。
+- **真实模式失败时不自动切换为 Mock**，Mock 与真实模式在界面和报告中分别标识。
 
-- `TextDelta`
-- `ToolCallStarted`
-- `ToolCallArgumentsDelta`
-- `ToolCallCompleted`
-- `UsageReported`
-- `ModelCompleted`
-- `ModelFailed`
+### 5. 持久化、审批与恢复
 
-模型配置按租户保存，API Key 使用 AES-GCM 加密，主密钥仅由 `MODEL_SECRET_MASTER_KEY` 环境变量提供。查询接口永不返回密钥明文。
+Agent 由**独立 Worker** 执行，与 API 进程分离。
 
-配置 Base URL 时必须使用 HTTPS；生产配置拒绝回环地址、私网地址和重定向到私网，开发环境通过明确白名单放行。
+- 运行创建、任务入队、审批后的恢复通知与相关业务记录在**同一事务**提交。
+- 任务领取使用 PostgreSQL 租约与运行互斥控制，Worker 重启后可重新领取未完成任务。
+- LangGraph 使用持久化检查点，以**运行 ID 作为 `thread_id`**。
+- 审批创建与动作执行**分别实现幂等**——恢复时中断节点之前的代码可能再次执行（[LangGraph 审批恢复规则](https://docs.langchain.com/oss/python/langgraph/interrupts)）。
 
-### 3. Commerce 模块
+关闭与转派统一创建审批请求，保存**不可变的动作参数**、工单版本与审核信息：
 
-只实现客服需要的 Mock Commerce Adapter，不开发商品、购物车和支付。
+- 坐席或管理员可以确认，首版不要求双人审批。
+- 默认有效期 **30 分钟**；拒绝、过期或工单版本变化时**不执行**。
+- 实际操作与执行账本在**同一数据库事务**完成；重复审批、任务重投或检查点重放只产生一次业务效果。
+- 工单状态首版简化为 `OPEN → CLOSED`，`CLOSED` 为终态；转派只修改负责人，且**仅允许操作开放工单**。
+- 草稿生成完成与工单关闭是**独立状态**：生成回复不会自动关闭工单。
 
-公开工具：
+### 6. 网页工作台与模型设置
 
-- `order.lookup`：读取订单详情，自动执行。
-- `shipment.track`：读取物流状态，自动执行。
-- `refund.checkEligibility`：检查退款资格，自动执行。
-- `ticket.create`：创建售后工单，低风险自动执行并审计。
-- `refund.request`：申请退款，高风险，必须审批。
-- `compensation.issue`：发放补偿，高风险，必须审批。
+工作台页面：工单提交、工单列表与详情、草稿编辑、引用查看、审批、知识导入、运行记录、模型设置、简单评测视图。
 
-消费者注册后自动生成可演示的订单和物流数据。Commerce 模块对外暴露端口，AI 模块不能直接访问订单表。
+工单详情集中呈现：原始问题、清洗文本与版本、分类结果、草稿（含编辑历史）、来源证据、工具执行步骤、审批与处理结果。
 
-### 4. Knowledge 模块
+- 人工编辑保存为**草稿新版本**；发布时校验版本并记录审核人。
+- 内部文档与历史工单引用**仅在坐席侧展示**；客户只接收确认后的正文与明确标注为公开的知识引用。
+- 模型设置支持 OpenAI-compatible 聊天与 Embedding 接口、连接测试与启用配置。
+- API Key 使用 **AES-GCM** 加密，主密钥仅来自 `MODEL_SECRET_MASTER_KEY` 环境变量；**查询接口只返回密钥是否已配置**，永不回显明文。
+- Mock 模式在界面与报告中明确标识。
 
-负责知识库、文档摄取、切片、Embedding 和 Elasticsearch 索引。
-
-摄取状态机：
-
-`UPLOADED -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> INDEXED`
-
-失败进入 `FAILED`，保存错误码和可重试次数。
-
-首版支持 PDF、DOCX、Markdown 和 TXT：
-
-- 原文件保存到 MinIO。
-- Apache Tika 提取正文。
-- 使用 `content_hash` 阻止重复上传。
-- 默认切片为 600 tokens、100 tokens overlap。
-- MySQL 的 `knowledge_chunks.content` 是可重建索引的事实来源。
-- Elasticsearch 索引是派生数据，允许整库重建。
-
-检索流程：
-
-1. 强制追加 `tenant_id` 和 `knowledge_base_id` 过滤。
-2. BM25 召回 Top 20。
-3. Dense Vector kNN 召回 Top 20。
-4. 使用 Reciprocal Rank Fusion 合并。
-5. 返回 Top 6 给模型。
-6. 保存引用 chunk、文档、分数和排序。
-
-首版不加入额外重排模型，避免扩大部署范围。
-
-### 5. Conversation 模块
-
-负责消费者会话、消息、SSE、引用和转人工。
-
-消息发送分成两个接口：
-
-1. `POST /api/v1/customer/conversations/{id}/messages` 持久化用户消息并返回 `202 Accepted` 和 `generationId`。
-2. `GET /api/v1/customer/generations/{generationId}/events` 建立 SSE，可通过 `Last-Event-ID` 重连。
-
-生成事件写入 Redis Stream，TTL 10 分钟。模型生成与 SSE 连接解耦，浏览器断线不会中止模型任务；重连后从最后事件继续读取。生成完成后持久化最终 AI 消息、Token 用量、延迟和引用。
-
-会话状态：
-
-- `AI_ACTIVE`
-- `WAITING_AGENT`
-- `HUMAN_ACTIVE`
-- `CLOSED`
-
-以下情况自动转人工：
-
-- 用户明确要求人工客服。
-- 检索证据不足。
-- 模型调用连续失败。
-- 高风险工具需要审批。
-- 检测到投诉、威胁或强烈负面情绪。
-- AI 无法确认退款资格。
-
-### 6. Action 模块
-
-负责工具调用、风险分级、审批和幂等。
-
-风险策略固定为：
-
-- `READ_ONLY`：订单、物流、资格查询，自动执行。
-- `LOW_RISK`：创建工单、转人工，自动执行并写审计。
-- `HIGH_RISK`：退款、补偿，只创建审批请求。
-
-高风险执行流程：
-
-`模型提出动作 -> 持久化工具调用 -> 创建审批 -> 坐席批准 -> 写 Outbox -> RocketMQ -> 幂等执行 -> 回写结果`
-
-审批状态：
-
-- `PENDING`
-- `APPROVED`
-- `REJECTED`
-- `EXPIRED`
-- `EXECUTING`
-- `EXECUTED`
-- `FAILED`
-
-审批有效期默认 30 分钟。批准、拒绝和执行接口必须携带 `Idempotency-Key`，重复请求返回第一次执行结果。
-
-### 7. Ticket 模块
-
-负责工单、队列、分配、状态机和 SLA。
-
-工单状态：
-
-`NEW -> OPEN -> PENDING_CUSTOMER | PENDING_APPROVAL -> RESOLVED -> CLOSED`
-
-允许 `RESOLVED -> OPEN` 重新打开一次；`CLOSED` 为终态。
-
-优先级：
-
-- `LOW`
-- `NORMAL`
-- `HIGH`
-- `URGENT`
-
-默认 SLA：
-
-- LOW：首次响应 8 小时，解决 72 小时。
-- NORMAL：首次响应 4 小时，解决 48 小时。
-- HIGH：首次响应 1 小时，解决 12 小时。
-- URGENT：首次响应 15 分钟，解决 4 小时。
-
-RocketMQ 延时消息负责到期提醒，但消费时必须重新读取工单状态和截止时间，防止工单已解决后仍发送告警。工单使用 `version` 乐观锁防止两个坐席同时领取。
-
-### 8. Eventing 模块
-
-负责 Outbox 发布、MQ 消费幂等、重试和死信。
-
-统一事件信封：
-
-```json
-{
-  "eventId": "string",
-  "tenantId": "string",
-  "eventType": "approval.approved",
-  "aggregateType": "approval",
-  "aggregateId": "string",
-  "occurredAt": "UTC timestamp",
-  "payload": {}
-}
-```
-
-主题：
-
-- `support-domain-events`
-- `support-sla-delay`
-- `support-notifications`
-- 对应的 `%DLQ%` 死信主题
-
-Outbox 发布失败采用指数退避，最多重试 8 次。消费者先写 `consumed_events` 唯一记录，再执行业务副作用；退款表和工具执行表同时使用业务幂等键，保证重复投递不会产生重复退款。
-
-### 9. Evaluation 模块
-
-负责 AI 质量评测和运营指标。
-
-离线评测指标：
-
-- `Recall@5`
-- 引用覆盖率
-- 期望工具命中率
-- 无证据回答率
-- 转人工判断准确率
-- 首 Token 延迟
-- 总响应时间
-
-运营指标：
-
-- AI 独立解决率
-- 转人工率
-- 平均首次响应时间
-- SLA 超时率
-- 审批通过率
-- 每模型平均成本和 Token 用量
-
-Prometheus 不使用 `tenantId` 作为标签，避免高基数；租户维度数据通过 MySQL 聚合接口查询。
-
-## 数据库设计
+## 数据模型与迁移
 
 统一约定：
 
-- 主键使用 MyBatis-Plus `ASSIGN_ID` 的 `BIGINT`，JSON 中序列化为字符串。
-- 时间使用 UTC `DATETIME(3)`。
-- 金额使用 `DECIMAL(12,2)`，币种使用 `CHAR(3)`。
-- 状态字段使用 `VARCHAR(32)` 和数据库 `CHECK`。
-- 所有租户业务表包含 `tenant_id`，外键建立对应索引。
-- 核心租户关系使用 `(tenant_id, id)` 复合约束，防止跨租户关联。
-- 工单、审批和模型配置使用 `version` 乐观锁。
-- 审计、工单事件和消费记录只追加，不提供物理删除接口。
+- 主键为 UUID，JSON 中序列化为字符串。
+- 时间统一 UTC ISO 8601；金额使用 `NUMERIC(12,2)`，**绝不使用浮点数**。
+- 状态字段使用 `TEXT` 加 `CHECK` 约束，枚举值在 Pydantic 与数据库中保持一致。
+- 工单、草稿、运行、审批与模型配置使用 `version` 乐观锁。
+- 审计日志、运行事件与执行账本**只追加**，不提供物理删除接口。
 
 ### 核心表清单
 
 | # | 表 | 关键字段与约束 | 主要索引 |
 |---|---|---|---|
-| 1 | `tenants` | `code`、`name`、`status`、`settings_json`；`code` 全局唯一 | `status` |
-| 2 | `users` | `email`、`password_hash`、`display_name`、`status`、`last_login_at`；email 全局唯一 | `email`、`status` |
-| 3 | `tenant_memberships` | `tenant_id`、`user_id`、`role`、`status`；租户和用户唯一 | `(tenant_id, role, status)` |
-| 4 | `refresh_tokens` | `user_id`、`tenant_id`、`jti`、`token_hash`、`expires_at`、`revoked_at` | `jti` 唯一、`(user_id, expires_at)` |
-| 5 | `agent_profiles` | `membership_id`、`presence_status`、`max_conversations`、`skill_tags` | `(tenant_id, presence_status)` |
-| 6 | `ai_model_configs` | `protocol`、`capability`、`base_url`、`model_name`、加密凭证、`default_slot`、`version` | `(tenant_id, capability, default_slot)` 唯一 |
-| 7 | `demo_orders` | `order_no`、`customer_user_id`、`total_amount`、`currency`、`status` | `(tenant_id, order_no)` 唯一、客户订单索引 |
-| 8 | `demo_order_items` | `order_id`、`sku`、`title`、`quantity`、`unit_price` | `(tenant_id, order_id)` |
-| 9 | `demo_shipments` | `order_id`、`tracking_no`、`carrier`、`status`、`estimated_delivery_at` | `(tenant_id, tracking_no)` 唯一 |
-| 10 | `demo_refunds` | `refund_no`、`order_id`、`action_type`、`amount`、`status`、审批信息 | `(tenant_id, refund_no)` 唯一、订单状态索引 |
-| 11 | `knowledge_bases` | `name`、`description`、`status`、切片配置 | `(tenant_id, name)` 唯一 |
-| 12 | `knowledge_documents` | `kb_id`、`title`、`object_key`、`mime_type`、`content_hash`、`status`、`error_message` | 文档哈希唯一、摄取状态索引 |
-| 13 | `knowledge_chunks` | `document_id`、`chunk_no`、`content`、`token_count`、`es_document_id`、`metadata_json` | `(document_id, chunk_no)` 唯一 |
-| 14 | `ingestion_jobs` | `document_id`、`job_type`、`status`、`attempt`、`progress`、错误字段 | `(tenant_id, status, created_at)` |
-| 15 | `conversations` | `conversation_no`、`customer_user_id`、`assigned_agent_user_id`、`status`、`last_message_at`、`version` | 客户索引、坐席队列索引 |
-| 16 | `messages` | `conversation_id`、`sender_type`、`content`、`status`、`model_config_id`、Token 和延迟、`request_id` | `(conversation_id, created_at)`、请求幂等唯一 |
-| 17 | `message_citations` | `message_id`、`document_id`、`chunk_id`、`rank_no`、`score`、`quote_text` | `(message_id, chunk_id)` 唯一 |
-| 18 | `handoff_records` | `conversation_id`、`ticket_id`、`reason`、`trigger_type`、接受坐席和时间 | `(tenant_id, requested_at)` |
-| 19 | `sla_policies` | `name`、`priority`、首次响应和解决时限、营业时间、默认标记 | `(tenant_id, priority)` |
-| 20 | `tickets` | `ticket_no`、会话、客户、分类、优先级、状态、坐席、SLA 截止时间、`version` | 队列索引、首次响应和解决超时索引 |
-| 21 | `ticket_events` | `ticket_id`、`event_type`、actor、前后状态、`content`、`payload_json` | `(ticket_id, created_at)` |
-| 22 | `tool_executions` | `tool_name`、`risk_level`、输入输出、状态、`idempotency_key`、错误信息 | 租户幂等键唯一、消息索引 |
-| 23 | `approval_requests` | `approval_no`、`tool_execution_id`、状态、审核人、到期时间、`version` | 工具调用唯一、待审批队列 |
-| 24 | `outbox_events` | `event_id`、aggregate、类型、payload、状态、attempt、`next_attempt_at` | `event_id` 唯一、发布扫描索引 |
-| 25 | `consumed_events` | `consumer_name`、`event_id`、`processed_at` | `(consumer_name, event_id)` 唯一 |
-| 26 | `audit_logs` | actor、action、resource、`request_id`、IP、UA、脱敏 details | actor 时间索引、resource 时间索引 |
-| 27 | `evaluation_cases` | `kb_id`、question、expected answer/docs/tool、category、enabled | `(tenant_id, kb_id, enabled)` |
-| 28 | `evaluation_runs` | 模型、知识库、状态、开始结束时间、汇总 metrics | `(tenant_id, created_at)` |
-| 29 | `evaluation_results` | `run_id`、`case_id`、answer、citations、各项评分和延迟 | `(run_id, case_id)` 唯一 |
+| 1 | `users` | `email`、`password_hash`（Argon2）、`display_name`、`role`、`status`、`last_login_at`；email 唯一 | `email` 唯一、`(role, status)` |
+| 2 | `user_sessions` | `user_id`、`token_hash`、`csrf_secret`、`expires_at`、`revoked_at`、`ip`、`user_agent` | `token_hash` 唯一、`(user_id, expires_at)` |
+| 3 | `tickets` | `ticket_no`、`submitter_id`、`subject`、`body_raw`、`body_cleaned`、`clean_version`、`category`、`status`、`assignee_id`、`version`、`closed_at` | `(submitter_id, created_at)`、`(status, assignee_id, created_at)` |
+| 4 | `ticket_replies` | `ticket_id`、`draft_id`、`content`、`published_by`、`published_at`；发布后不可变 | `(ticket_id, published_at)` |
+| 5 | `agent_runs` | `ticket_id`、`status`、`model_mode`、`chat_config_id`、`index_version`、`retry_of_run_id`、`lease_owner`、`lease_expires_at`、`step_count`、`tool_call_count`、`error_code` | **部分唯一索引** `(ticket_id) WHERE status IN ('QUEUED','RUNNING','WAITING_APPROVAL')`、`(status, lease_expires_at)` |
+| 6 | `run_events` | `run_id`、`seq`、`event_type`、`payload_json`、`created_at`；按 `created_at` **声明式月分区** | `(run_id, seq)` 唯一、分区裁剪 |
+| 7 | `run_steps` | `run_id`、`step_no`、`node_name`、`status`、`latency_ms`、`error_code`、`input_digest`、`output_digest` | `(run_id, step_no)` 唯一 |
+| 8 | `tool_invocations` | `run_id`、`step_no`、`tool_name`、`risk_level`、`arguments_json`、`result_json`、`status`、`latency_ms`、`error_code`、`idempotency_key` | `(run_id, step_no)` 唯一、`(tool_name, created_at)` |
+| 9 | `drafts` | `ticket_id`、`run_id`、`version`、`content`、`status`、`editor_user_id` | `(ticket_id, version)` 唯一、`(ticket_id, status)` |
+| 10 | `source_citations` | `draft_id`、`source_type`、`source_id`、`source_version`、`chunk_id`、`locator`、`quote_text`、`rank_no`、`score` | `(draft_id, rank_no)`、`chunk_id` |
+| 11 | `knowledge_documents` | `title`、`mime_type`、`object_key`、`content_hash`、`index_version`、`embedding_model`、`embedding_dim`、`status`、`error_code` | `(content_hash, index_version)` 唯一、`(status, created_at)` |
+| 12 | `knowledge_chunks` | `document_id`、`chunk_no`、`content`、`token_count`、`embedding vector(N)`、`index_version`、`tsv tsvector` | `(document_id, chunk_no)` 唯一、`tsv` 的 GIN 索引、`embedding` 的 HNSW 索引 |
+| 13 | `history_tickets` | `source_ref`、`sanitized_question`、`confirmed_resolution`、`resolved_at`、`source_hash`、`index_version`、`tsv tsvector` | `source_hash` 唯一、`tsv` 的 GIN 索引 |
+| 14 | `import_jobs` | `kind`、`source_name`、`status`、`attempt`、`progress`、`error_code`、`content_hash`、`index_version` | `(kind, status, created_at)` |
+| 15 | `action_requests` | `ticket_id`、`run_id`、`action_type`、`parameters_json`（不可变）、`ticket_version`、`target_assignee_id`、`status`、`expires_at`、`decided_by`、`decided_at`、`version` | `(ticket_id, created_at)`、`(status, expires_at)` |
+| 16 | `action_ledger` | `action_request_id` 唯一、`idempotency_key` 唯一、`executed_at`、`result_json` | 两个唯一约束即幂等边界 |
+| 17 | `model_configs` | `capability`、`protocol`、`base_url`、`model_name`、`api_key_ciphertext`、`embedding_dim`、`enabled`、`version` | `(capability) WHERE enabled` 唯一——单工作区每类只启用一个 |
+| 18 | `idempotency_records` | `scope`、`key`、`request_hash`、`response_snapshot`、`status`、`expires_at` | `(scope, key)` 唯一 |
+| 19 | `evaluation_cases` | `category`、`question`、`expected_ticket_category`、`expected_source_ids`、`expected_tools`、`expect_handoff`、`enabled` | `(category, enabled)` |
+| 20 | `evaluation_runs` | `model_config_id`、`index_version`、`mode`、`status`、`metrics_json`、起止时间 | `(created_at)` |
+| 21 | `evaluation_results` | `run_id`、`case_id`、`draft_content`、`citations`、`category_correct`、`recall_at_5`、`citation_valid`、`tool_correct`、`handoff_correct`、`latency_ms` | `(run_id, case_id)` 唯一 |
+| 22 | `audit_logs` | `actor_id`、`action`、`resource_type`、`resource_id`、`request_id`、`ip`、`user_agent`、`details_json`（脱敏） | `(actor_id, created_at)`、`(resource_type, resource_id, created_at)` |
 
-### Flyway 迁移顺序
+### Alembic 迁移顺序
 
-- `V1__identity_and_tenant.sql`
-- `V2__agent_and_model_configs.sql`
-- `V3__demo_commerce.sql`
-- `V4__knowledge_ingestion.sql`
-- `V5__conversation_streaming.sql`
-- `V6__tickets_tools_and_approvals.sql`
-- `V7__outbox_audit_and_evaluation.sql`
+```text
+0001_identity_and_sessions
+0002_tickets_and_runs
+0003_run_events_and_steps
+0004_knowledge_pgvector
+0005_history_index
+0006_approvals_and_ledger
+0007_model_configs_and_idempotency
+0008_evaluation_and_audit
+```
 
-迁移采用 expand-contract 原则。每个版本同时提供人工回滚脚本和测试数据重建脚本；禁止直接重命名或删除已上线字段。
+迁移遵循 **expand-contract**：先兼容写入与读取，再迁移数据，最后删除旧结构。上线字段不得直接重命名或删除。每个版本必须能在**空库**执行通过，并提供回滚点说明。
 
-## 公共 API 与类型
+## 接口与数据约定
 
-成功响应直接使用业务 JSON，不封装自定义通用 envelope。错误统一使用 RFC 9457 `ProblemDetail`，附加稳定 `code` 和 `requestId`。
+新版保留 `/api/v1` 前缀，**重新定义接口契约**，前后端一起切换，不提供旧 Java API 兼容层。
 
-### 身份与租户
+| 能力 | 主要接口与行为 |
+|---|---|
+| 工单提交与查看 | `POST /tickets` 创建工单及首次运行，返回 `202 + ticket_id + run_id`；`GET /tickets`、`GET /tickets/{id}` 按角色过滤 |
+| Agent 运行 | `POST /tickets/{id}/runs` 发起新运行；`GET /runs/{id}` 查询状态与结果 |
+| 运行事件 | `GET /runs/{id}/events` 提供 SSE，支持 `Last-Event-ID` 重连 |
+| 草稿与正式回复 | `PATCH /drafts/{id}` 保存编辑版本；`POST /drafts/{id}/publish` 经人工确认后发布 |
+| 操作审批 | `POST /tickets/{id}/action-requests` 创建操作提案；`POST /approvals/{id}/decision` 批准或拒绝 |
+| 知识与历史导入 | `POST /knowledge/imports`、`POST /history/imports` 返回可查询的导入任务 |
+| 模型配置 | 管理员创建、更新、测试及启用聊天和 Embedding 配置 |
+| 评测 | `POST /evaluations/runs` 执行评测，查询结果并导出 JSON 报告 |
 
-- `POST /api/v1/tenants/register`
-- `POST /api/v1/customers/register`
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/refresh`
-- `POST /api/v1/auth/logout`
-- `POST /api/v1/auth/change-password`
-- `POST /api/v1/admin/members`
-- `PATCH /api/v1/admin/members/{id}/status`
+统一约定：
 
-### 消费者端
+- 使用 Pydantic 定义 `Ticket`、`AgentRun`、`Draft`、`SourceCitation`、`Approval`、`RunEvent`，并**从 OpenAPI 生成前端类型**，避免手写重复定义。
+- ID 为 UUID 字符串，时间为 UTC ISO 8601，JSON 字段采用 `snake_case`。
+- 错误统一使用 **RFC 9457 Problem Details**，必须含稳定 `code` 与 `request_id`；不把底层异常文本暴露给客户端。
+- 有业务副作用的写接口要求 **`Idempotency-Key`**：相同请求重放返回首次结果；相同键对应不同请求返回 `409`。
+- **一个工单同时只能有一个活动运行。** 运行状态固定为：
 
-- `GET /api/v1/customer/orders`
-- `GET /api/v1/customer/orders/{orderNo}`
-- `POST /api/v1/customer/conversations`
-- `GET /api/v1/customer/conversations`
-- `GET /api/v1/customer/conversations/{id}`
-- `POST /api/v1/customer/conversations/{id}/messages`
-- `GET /api/v1/customer/generations/{generationId}/events`
+```text
+QUEUED → RUNNING → WAITING_APPROVAL → COMPLETED
+                 ↘ NEEDS_HUMAN
+                 ↘ FAILED
+```
 
-### 坐席与工单
+人工重试创建**关联原记录的新运行**（`retry_of_run_id`），不原地复活旧运行。
 
-- `GET /api/v1/console/queue`
-- `POST /api/v1/console/conversations/{id}/claim`
-- `POST /api/v1/console/conversations/{id}/transfer`
-- `POST /api/v1/console/conversations/{id}/reply`
-- `GET /api/v1/console/tickets`
-- `POST /api/v1/console/tickets`
-- `PATCH /api/v1/console/tickets/{id}/status`
-- `POST /api/v1/console/tickets/{id}/comments`
-- `GET /api/v1/console/approvals`
-- `POST /api/v1/console/approvals/{id}/approve`
-- `POST /api/v1/console/approvals/{id}/reject`
+- SSE 从**持久化事件记录**读取，断开或重连**不触发重新运行**，不重复持久化消息。
+- 日志记录步骤、工具、耗时、重试、错误码与模型用量；敏感输入与密钥不写入普通日志。
 
-### 知识库、模型与评测
+SSE 事件类型固定为：
 
-- `POST /api/v1/console/knowledge-bases`
-- `POST /api/v1/console/knowledge-bases/{id}/documents`
-- `GET /api/v1/console/documents/{id}`
-- `POST /api/v1/console/documents/{id}/retry`
-- `DELETE /api/v1/console/documents/{id}`
-- `GET/POST/PATCH /api/v1/admin/model-configs`
-- `POST /api/v1/admin/model-configs/{id}/probe`
-- `POST /api/v1/admin/model-configs/{id}/make-default`
-- `GET/POST/PATCH /api/v1/admin/sla-policies`
-- `POST /api/v1/console/evaluations/runs`
-- `GET /api/v1/console/evaluations/runs/{id}`
-
-SSE 事件固定为：
-
-- `generation.started`
-- `retrieval.completed`
-- `content.delta`
-- `citation.added`
-- `tool.requested`
-- `tool.completed`
-- `approval.required`
-- `handoff.created`
-- `generation.completed`
-- `generation.failed`
+```text
+run.started        run.step.started     run.step.completed
+retrieval.completed tool.requested      tool.completed
+draft.created      citation.invalid     approval.required
+action.executed    run.needs_human      run.completed
+run.failed
+```
 
 ## 前端设计
 
-同一个 React 应用按角色分区。
+单页应用，按角色分区。
 
-消费者端：
+用户侧：
 
-- `/customer/register`
-- `/customer/login`
-- `/customer/orders`
-- `/customer/chat`
-- `/customer/chat/:conversationId`
+```text
+/login
+/tickets            我的工单列表
+/tickets/new        提交工单
+/tickets/:id        工单详情（含本人可见的正式回复）
+```
 
-坐席端：
+坐席 / 管理员侧：
 
-- `/console/inbox`
-- `/console/conversations/:id`
-- `/console/tickets`
-- `/console/approvals`
-- `/console/knowledge`
-- `/console/evaluations`
-- `/console/settings/members`
-- `/console/settings/models`
-- `/console/settings/sla`
+```text
+/console/queue              待处理工单队列
+/console/tickets/:id        工单详情：原文、清洗文本、分类、草稿编辑、引用、工具轨迹、审批
+/console/approvals          审批列表与决策
+/console/runs/:id           运行记录与事件时间线
+/console/knowledge          知识导入、文档列表、历史工单导入
+/console/evaluations        评测运行与报告
+/console/settings/models    聊天与 Embedding 模型配置
+/console/settings/members   账号与角色管理（仅管理员）
+```
 
-会话详情页同时展示消息、引用来源、工具执行轨迹、关联订单、工单和审批，不把调试 JSON 直接暴露给消费者。
+关键要求：
+
+- 工单详情页把**草稿、来源证据、工具执行步骤**并列呈现，不把调试 JSON 直接抛给用户。
+- 内部文档与历史工单引用仅在坐席侧可见，客户侧契约**不返回**内部引用字段。
+- 刷新、重复点击提交、SSE 断线重连、失败提示均需有明确状态反馈。
 
 ## 失败处理与安全边界
 
-- 模型超时或 5xx：仅在尚未执行工具时重试一次，失败后自动转人工。
-- Anthropic 或 OpenAI 协议解析失败：保存脱敏错误码，不保存 API Key 和完整请求头。
-- Elasticsearch 不可用：停止生成带知识结论的回答，提示转人工，不降级成无证据回答。
-- RocketMQ 不可用：Outbox 保持待发送，高风险操作不得绕过消息链路直接执行。
-- Redis 不可用：禁止创建新的流式任务，普通工单查询仍可用。
-- 重复消息、重复审批和 MQ 重投：通过请求幂等键、乐观锁和消费表保证一次业务效果。
-- 文档内容视为不可信数据，禁止其中的指令覆盖系统提示词或工具权限。
-- 上传限制为单文件 20MB，校验 MIME、扩展名、内容签名和解压大小。
-- 客户消息和模型输入默认不写入普通 INFO 日志。
-- API Key、密码、JWT 和客户隐私字段统一脱敏。
-- 租户隔离同时覆盖 MySQL 查询、Elasticsearch filter、Redis key 前缀和 RocketMQ 事件。
+- **模型超时或 5xx**：超时、限流与临时错误最多重试 3 次并指数退避；参数与权限错误不重试；持续失败进入 `NEEDS_HUMAN`。
+- **真实模式失败**：不降级为 Mock，不产出无证据结论。
+- **检索为空或证据不足**：转人工，不生成答案。
+- **引用无法校验来源**：丢弃该引用；全部无效则转人工。
+- **PostgreSQL 不可用**：API 与 Worker 均拒绝新运行，返回 `503` 与稳定错误码。
+- **文件卷不可用**：导入任务失败并保留可重试状态，不丢失任务记录。
+- **重复审批 / 任务重投 / 检查点重放**：由 `action_ledger` 唯一约束与运行内幂等共同保证仅一次业务效果。
+- **文档、用户消息与检索结果均视为不可信输入**：其内容不得覆盖系统提示词、角色、权限或工具白名单。
+- 上传限制为单文件 20MB，校验 MIME、扩展名与内容签名。
+- 客户消息与模型输入默认不写入普通 INFO 日志。
+- API Key、密码、会话令牌与客户隐私字段统一脱敏；模型 API Key 只保存 AES-GCM 密文。
 
-## 8 周开发计划
+## 迁移与实施顺序
 
-### 第 1 周：工程骨架与身份体系
+### 阶段 1：封存旧版并更新工程规范
 
-- 创建后端、前端、Compose 和 CI 基线。
-- 接入 Spring Modulith、MyBatis-Plus、Flyway、Security 和统一错误协议。
-- 完成 `V1`，实现租户管理员注册、消费者注册、登录、刷新、登出和 RBAC。
-- 添加租户拦截器、跨租户集成测试和 ArchUnit 模块边界测试。
-- 验收：两个租户使用相同业务编号也不能读取对方数据。
+当前基线为 `f4f02d6`（master），另有 21 个未跟踪文件、一个历史 stash 与一个额外 worktree。实施前重新核验，把 Git 引用、stash、源码快照与文件哈希清单**封存到仓库外**并验证可恢复；在 `codex/supportflow-agent-python` 分支开展重构。新版使用独立配置与独立数据卷，旧数据保留。
 
-### 第 2 周：模型协议与 Mock Commerce
+- 验收：封存产物可完整恢复；`git show f4f02d6:PLAN.md` 能取回旧架构基线；分支创建完成。
 
-- 完成 OpenAI-compatible 和 Anthropic Messages 适配器。
-- 使用 WireMock 模拟两种 SSE 协议、tool calls、超时和错误。
-- 完成模型配置加密、探测、默认模型切换和客户端缓存失效。
-- 实现模拟订单、物流、退款资格和消费者订单页面。
-- 验收：不改业务代码即可切换两个协议并完成流式回答。
+### 阶段 2：建立可启动的 Python 基础闭环
 
-### 第 3 周：知识摄取
+工程骨架、Alembic 迁移、会话鉴权、工单 API、Mock 网关、Worker 与 Docker Compose 启动。
 
-- 完成 MinIO 上传、Tika 解析、切片、内容去重和摄取状态机。
-- 完成 Embedding 批处理和 Elasticsearch 索引。
-- 加入失败重试、进度查询和整库重建命令。
-- 验收：PDF、DOCX、Markdown、TXT 均可进入 `INDEXED`，重复文件被识别。
+- 验收：提交工单 → 持久化 → 刷新后仍可查询；容器重启后数据库与上传卷数据保留。
 
-### 第 4 周：RAG 与引用
+### 阶段 3：完成知识与 Agent
 
-- 实现 BM25、向量检索和 RRF。
-- 完成租户强制过滤、检索阈值和引用持久化。
-- 建立首批 50 条电商售后评测集。
-- 验收：`Recall@5 >= 0.80`，有知识结论的回答引用覆盖率为 100%。
+文档与历史导入、混合检索与引用、真实模型网关、工具调用与检查点恢复，随后接入审批、正式回复与失败处理。
 
-### 第 5 周：会话和可靠 SSE
+- 验收：中文检索与 RRF 融合可用；引用全部可溯源；Worker 崩溃后恢复不重复执行。
 
-- 实现会话、消息、生成任务和 Redis Stream。
-- 完成 `POST message + GET events` 两段式协议和 `Last-Event-ID` 重连。
-- 接入订单、物流和退款资格只读工具。
-- 实现模型失败、低置信度和人工请求的转人工判定。
-- 验收：浏览器断线重连不重复生成消息，重复提交不产生重复用户消息。
+### 阶段 4：完成网页与自动化验证
 
-### 第 6 周：工单、SLA 与高风险审批
+前端接入新契约，替换 Java / Tauri 构建任务，建立 Python、前端、集成测试与浏览器 E2E 的 CI。
 
-- 完成工单状态机、领取、转派、评论和 SLA 计算。
-- 完成工具风险分级、审批队列和退款/补偿流程。
-- 接入 Outbox、RocketMQ 延时消息、消费幂等和 DLQ。
-- 验收：退款必须审批，MQ 重复投递不会生成第二条退款记录。
+- 验收：CI 全绿，覆盖率门槛生效。
 
-### 第 7 周：坐席工作台与运营视图
+### 阶段 5：完成文档与交付证据
 
-- 完成坐席队列、会话详情、订单侧栏、工单、审批、知识库和模型设置页面。
-- 完成用户端注册、订单列表和聊天体验。
-- 加入 AI 解决率、转人工率、SLA 和模型成本视图。
-- 使用 Playwright 覆盖消费者提问到坐席关闭工单的完整路径。
-- 验收：新用户可以在一个浏览器完成消费者流程，另一个浏览器完成坐席流程。
+更新 `AGENTS.md`、`PLAN.md`、架构决策、启动说明、接口契约、故障演练与简历描述；旧 Java 架构文档（`docs/adr/0001-0007`、`docs/architecture.md`、`docs/contracts/`、`docs/reports/`）在此阶段正式退役并标注为旧版证据。
 
-### 第 8 周：质量、压测和简历交付
+- 验收：README 起停命令与真实环境一致；Mock 报告与真实模型报告分别归档。
 
-- 已验收：后端 115/115 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 93.65%，分支覆盖率 75.38%，并由 Maven `verify` 强制执行 85%/75% 门禁（2026-08-13）。SLA 去重标记与 Outbox 原子提交，真实 RocketMQ 测试验证绝对截止时间前不投递、到期后送达；模型 SSE 客户端使用 Reactor Netty，超时取消不会产生 JDK HTTP 客户端的异步伪错误日志；测试 JVM 显式预加载 Mockito Agent，并与 JaCoCo Agent 共存，避免依赖未来 JDK 禁止的运行时自挂载。
-- 已验收：前端 Vitest 4/4、TypeScript/Vite 生产构建通过；Playwright 管理端与消费者到坐席闭环 2/2 通过，180.08 秒演示录屏场景通过。
-- 已验收：完整 Docker Compose 启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL 23 个 Flyway 迁移全部成功、RocketMQ Topic 路由可用。
-- 已验收：k6 Mock Model 场景完成 100 个并发 SSE 会话压测，建连 P95 为 46.11ms、错误率 0%。
-- 已验收：非模型普通 API 在 100 RPS 下 P95 为 3.84ms、错误率 0%。
-- 已验收：Gitleaks 扫描完整 Git 历史无泄漏，npm 生产依赖审计 0 漏洞，Dependency Review 与 CodeQL 已接入 CI。
-- 已升级：CI 密钥扫描使用 Gitleaks Action v3（Node.js 24）并固定 Gitleaks 8.30.1，消除 Node.js 20 弃用风险且保持原有扫描输入、输出和行为。
-- 已补齐 OpenAPI、架构图、ER 图、演示数据、测试/性能报告、故障演练脚本、简历项目描述和 180.08 秒演示录像。
-- 已验收：Redis 与 RocketMQ Broker 故障演练均确认停机路径并自动恢复，恢复后后端健康仍为 `UP`；当前 HEAD 的最终门禁通过后创建 Git 标签 `v1.0.1-demo`，旧 `v1.0.0-demo` 保留为历史快照。
+每批形成独立可审查的改动与验证记录。回滚依赖旧版归档、保留的 Git 历史与独立数据库。**提交、推送及发布不包含在本次默认实施范围内。**
 
-## 最终验收场景
+## 验收标准与默认条件
 
-1. 租户管理员注册企业并创建坐席。
-2. 消费者完整注册登录并查看自己的模拟订单。
-3. 管理员上传退款规则文档并完成索引。
-4. 消费者询问物流，AI 自动查询并带引用回答。
-5. 消费者提出退款，AI 检查资格但不直接执行。
-6. 坐席批准后，RocketMQ 驱动退款且只执行一次。
-7. 低置信度问题自动转人工并生成带 SLA 的工单。
-8. 坐席领取、回复、解决和关闭工单。
-9. 切换 OpenAI-compatible 与 Anthropic 模型后业务接口保持不变。
-10. 重复请求、断线重连、模型故障、MQ 重投和跨租户访问均通过测试。
+- **单元与协议测试**：覆盖清洗、分类结构、非法工具参数、权限、引用归属、导入去重、瞬时错误重试、模型错误与密钥脱敏。Python 行覆盖率目标至少 **85%**、分支至少 **75%**（门槛生效时点见下），同时通过 Ruff、类型检查与前端构建。
+- **真实数据库测试**：使用 PostgreSQL + pgvector 验证空库迁移、中文检索、事务、并发幂等与恢复。重点用例为「业务操作已提交、检查点尚未保存时 Worker 崩溃」，恢复后不重复关闭或转派。
+- **审批与访问控制**：覆盖重复确认、拒绝、过期、版本冲突、非法负责人，以及客户访问他人工单、内部草稿、运行记录与知识来源被拒绝。
+- **浏览器闭环**：用户提交 → 坐席查看 Agent 草稿与引用 → 编辑并正式回复 → 客户查看回复 → 审批转派或关闭；验证刷新、重复点击、断线重连与失败提示。
+- **评测集**：建立 **50 条冻结用例**，含 40 条知识与历史检索场景、10 条安全或失败场景。记录分类准确率、Recall@5、引用合法性、工具选择与转人工结果。目标为分类准确率 **≥90%**、Recall@5 **≥80%**，安全用例与引用归属检查**全部通过**。
+- **Docker 与性能**：配置模板后可启动全部服务，数据库与上传文件在重启后保留；验证 API / Worker 健康、断点恢复与故障演练。普通 API 目标为 **100 RPS 下 P95 < 300ms**；**100 并发 SSE 建连 P95 < 1 秒、错误率 < 1%**，报告需注明测试环境与实际结果。
+
+Mock 测试报告与真实模型评测报告**分别保存**。没有真实模型配置与实测结果时，只报告适配器及 Mock 验证情况，**不将其作为真实 RAG 质量证据**。
 
 ## 已锁定假设
 
-- 工作名称和仓库名为 `SupportFlow-AI`，后续可改品牌但不改变架构。
-- 新项目独立开发，不复制 `Ai-Agent` 的业务代码。
-- 采用模块化单体，不提前拆微服务。
-- 消费者具有完整注册登录，但不做邮箱验证、找回密码和第三方登录。
-- 模型全部通过外部 API 接入，不管理本地模型运行时。
-- 首版仅支持 OpenAI-compatible 和 Anthropic Messages 两种 Chat 协议。
-- Embedding 首版只支持 OpenAI-compatible API。
-- 退款和补偿永远需要人工审批。
-- 首版部署目标是 Docker Compose 和 GitHub Actions，不包含 Kubernetes 与公有云正式上线。
-- 模块边界采用 Clean Architecture，数据库以 3NF、强外键、索引和可回滚迁移为默认标准。
+- 仓库沿用 `/Users/liuyongze/Documents/SupportFlow-AI`，重构在 `codex/supportflow-agent-python` 分支进行。
+- 旧 Java 版封存保留，不迁移数据，不提供 API 兼容层；旧文档在阶段 5 正式退役。
+- 单工作区、单租户，**不引入 `tenant_id`**，也不为「将来多租户」预留抽象。
+- 工单状态只有 `OPEN` 与 `CLOSED`，`CLOSED` 为终态；转派只改负责人。
+- 关闭与转派**永远需要人工审批**；草稿生成不自动关闭工单。
+- 检索只使用 PostgreSQL 全文 + pgvector，不引入专用检索服务或重排模型。
+- 模型通过外部 API 接入，首版协议为 OpenAI-compatible；聊天与 Embedding 分别配置。
+- 首版不做 OCR、不做自助注册、不做双人审批、不做 updater 与桌面分发。
+- 部署目标为 Docker Compose 与 GitHub Actions，不含 Kubernetes 与公有云正式上线。
 
-## 开发前收敛计划（补充与开工前置）
+## 实施口径与建议锁定项
 
-本节把前述架构蓝图收敛为可开工、可验收、可回滚的实施约束。目标是在扩展 RAG、工单和审批功能前，先验证租户隔离、可靠流式生成和高风险动作的基础链路，避免在第 5～6 周集中暴露架构问题。
+以下七项在原计划中未定义或存在内部矛盾，本节给出可直接执行的结论，作为本基线的实施口径。标注「建议锁定」的条目如无异议即按此执行。
 
-### 范围
-
-- 纳入：仓库与环境基线、架构决策记录、首条端到端闭环、接口/事件/幂等契约、测试与验收门禁。
-- 不纳入：新增业务模块、微服务拆分、真实支付/退款通道、Kubernetes 和生产云部署。
-
-### 实施清单
-
-- [x] 确认唯一项目根目录为 `/Users/liuyongze/Documents/SupportFlow-AI`，统一包名 `com.lqq.supportflow` 与 Compose 项目名。
-- [x] 建立 `docs/adr/` 并冻结模块边界、认证与租户隔离、SSE、Outbox 和审批模型等关键决策。
-- [x] 按纵向切片完成租户注册、消费者登录、模拟订单、会话和 Mock 流式回复闭环。
-- [x] 为发消息、领取工单、审批和退款执行落实 `Idempotency-Key`、乐观锁与业务幂等约束。
-- [x] 在 `docs/contracts/` 维护 OpenAPI、SSE 与 RocketMQ 事件契约。
-- [x] 将 MySQL、Elasticsearch、Redis 与 RocketMQ 租户隔离转化为自动化反例测试。
-- [x] 明确生成状态、Redis Stream 短期事件、MySQL 最终事实及断线重放机制。
-- [x] 建立 RAG 阈值、评测集、引用持久化及证据不足转人工规则。
-- [x] 完成高风险审批摘要、版本、Outbox、幂等执行与审计约束。
-- [x] 建立后端、前端、容器、浏览器、安全、覆盖率与压测 CI/交付门禁。
-- [x] 完成架构中期门禁和跨租户、文档摄取、引用、重连、转人工验证。
-- [x] 补齐 README、架构/ER/OpenAPI、演示数据、故障脚本、测试/性能报告、演示录像和简历材料。
-
-### 已确认实施口径
-
-- 唯一仓库根目录为 `/Users/liuyongze/Documents/SupportFlow-AI`。
-- Docker 本地演示默认使用确定性 Mock Model；将 `SUPPORTFLOW_MODEL_MOCK_ENABLED=false` 后切换真实模型协议。
-- 演示数据采用固定退款/补偿规则，高风险动作始终进入人工审批。
+| # | 事项 | 结论 | 依据 | 状态 |
+|---|---|---|---|---|
+| 1 | 旧文档退役时点 | `AGENTS.md` 与 `PLAN.md` 本轮即重写为 Python 基线（同路径替换）；`docs/adr/0001-0007`、`docs/architecture.md`、`docs/contracts/`、`docs/reports/` 留至阶段 5 退役 | 避免阶段 2–4 期间工程规范与实际技术栈互斥 | 已确认 |
+| 2 | 覆盖率门槛生效时点 | 阶段 3 结束时起强制执行 85% / 75%；阶段 2 的门槛为核心链路单测齐全、空库迁移通过、容器可启动 | LangGraph + SSE + 真实数据库组合下，阶段 2 达成全仓覆盖率不可行 | 建议锁定 |
+| 3 | 运行互斥机制 | `agent_runs` 上使用**部分唯一索引** `(ticket_id) WHERE status IN ('QUEUED','RUNNING','WAITING_APPROVAL')`；任务领取使用 `lease_owner` + `lease_expires_at` 配合 `FOR UPDATE SKIP LOCKED` | 声明式、事务内天然生效、无需额外锁表；advisory lock 在连接池下易泄漏 | 建议锁定 |
+| 4 | 运行事件保留策略 | `run_events` 按 `created_at` 声明式月分区，在线保留 **30 天**，到期 `DETACH` 后归档或丢弃 | SSE 重连窗口只在运行期间需要，30 天满足评测与排障 | 建议锁定 |
+| 5 | 开发集来源与规模 | 从 FAQ CSV 与脱敏历史工单人工标注 **100 条 dev set**（60 条检索、40 条分类与工具），存放 `evals/devset.jsonl`；**50 条 holdout 评测集**独立存放 `evals/holdout.jsonl`。dev set 用于校准检索门槛，**不参与评测报告、不进知识库** | 门槛校准需独立于评测集，否则校准即污染；dev set 规模取 holdout 的 2 倍 | 建议锁定 |
+| 6 | Mock / 真实模式切换粒度 | 两层：全局默认由 `MODEL_MODE=mock\|real` 决定（Compose 默认 `mock`）；`POST /tickets` 可选 `model_mode` 字段做 per-run 覆盖，仅坐席与管理员可用。`model_mode` 与 `chat_config_id` 必须持久化到 `agent_runs` 以支撑可追溯 | 演示需要默认可控，评测需要可切换；禁止运行中切换与失败自动降级 | 建议锁定 |
+| 7 | 封存目录位置与保留期 | `/Users/liuyongze/Documents/SupportFlow-Archive/2026-09-11-f4f02d6/`，含 `supportflow.bundle`（全 refs + stash）、`untracked-21.tar.gz`、`worktrees.tar.gz`、`MANIFEST.sha256`、`RESTORE.md`。保留至阶段 5 结束 + 3 个月 | 位于仓库外且与项目同级，随 Documents 一并进入备份 | 建议锁定 |
