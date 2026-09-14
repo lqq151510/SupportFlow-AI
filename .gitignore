@@ -28,5 +28,8 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# --- 知识导入的运行时上传目录（原始客户文档不入库）---
+/var/
+
 # --- WorkBuddy 本地工作记忆（约定不入库）---
 .workbuddy/

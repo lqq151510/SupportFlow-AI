@@ -38,6 +38,10 @@ PG_IMAGE = "pgvector/pgvector:pg17"
 
 #: 按外键依赖倒序排列，TRUNCATE ... CASCADE 一次性清空。
 BUSINESS_TABLES = (
+    "history_tickets",
+    "knowledge_chunks",
+    "knowledge_documents",
+    "import_jobs",
     "idempotency_records",
     "audit_logs",
     "run_steps",
@@ -169,3 +173,8 @@ def logged_in_customer(demo_users: None, login: Callable[..., str]) -> str:
 @pytest.fixture
 def logged_in_agent(demo_users: None, login: Callable[..., str]) -> str:
     return login("agent@example.com")
+
+
+@pytest.fixture
+def logged_in_admin(demo_users: None, login: Callable[..., str]) -> str:
+    return login("admin@example.com")

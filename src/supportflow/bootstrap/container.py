@@ -37,6 +37,8 @@ from supportflow.identity.infrastructure.security import (
     Argon2PasswordHasher,
     SecureTokenSource,
 )
+from supportflow.knowledge.application.service import KnowledgeService
+from supportflow.knowledge.infrastructure.repository import SqlAlchemyKnowledgeRepository
 from supportflow.model.domain.gateway import ChatModelGateway
 from supportflow.model.infrastructure.factory import available_model_modes, build_chat_gateway
 from supportflow.shared.audit import AuditRecorder
@@ -53,6 +55,7 @@ class Services:
     session: Session
     auth: AuthService
     tickets: TicketService
+    knowledge: KnowledgeService
     runs: RunService
     audit: AuditRecorder
     gateway: ChatModelGateway
@@ -65,6 +68,7 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
     users = SqlAlchemyUserRepository(session)
     user_sessions = SqlAlchemySessionRepository(session)
     tickets_repo = SqlAlchemyTicketRepository(session)
+    knowledge_repo = SqlAlchemyKnowledgeRepository(session)
     runs_repo = SqlAlchemyRunRepository(session)
     events_repo = SqlAlchemyRunEventRepository(session)
     steps_repo = SqlAlchemyRunStepRepository(session)
@@ -93,11 +97,17 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
         default_model_mode=cfg.model_mode,
         available_model_modes=available_modes,
     )
+    knowledge = KnowledgeService(
+        knowledge_repo,
+        IdempotencyStore(session),
+        upload_dir=cfg.upload_dir,
+    )
     return Services(
         settings=cfg,
         session=session,
         auth=auth,
         tickets=tickets,
+        knowledge=knowledge,
         runs=runs,
         audit=AuditRecorder(session),
         gateway=build_chat_gateway(cfg),

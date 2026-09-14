@@ -44,6 +44,10 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "run_steps",
         "audit_logs",
         "idempotency_records",
+        "import_jobs",
+        "knowledge_documents",
+        "knowledge_chunks",
+        "history_tickets",
     }
     with session_scope() as session:
         found = set(
@@ -123,6 +127,29 @@ def test_idempotency_scope_key_is_unique(migrated: None) -> None:
         "AND constraint_name = 'uq_idempotency_scope_key'"
     )
     assert count == 1
+
+
+def test_knowledge_indexes_use_vector_and_gin(migrated: None) -> None:
+    extension = _scalar("SELECT COUNT(*) FROM pg_extension WHERE extname = 'vector'")
+    assert extension == 1
+    with session_scope() as session:
+        definitions = dict(
+            session.execute(
+                text(
+                    "SELECT indexname, indexdef FROM pg_indexes "
+                    "WHERE indexname IN ("
+                    "'ix_knowledge_chunks_tsv', "
+                    "'ix_knowledge_chunks_embedding_hnsw', "
+                    "'ix_history_tickets_tsv', "
+                    "'ix_history_tickets_embedding_hnsw'"
+                    ")"
+                )
+            ).all()
+        )
+    assert "USING gin" in definitions["ix_knowledge_chunks_tsv"]
+    assert "USING hnsw" in definitions["ix_knowledge_chunks_embedding_hnsw"]
+    assert "USING gin" in definitions["ix_history_tickets_tsv"]
+    assert "USING hnsw" in definitions["ix_history_tickets_embedding_hnsw"]
 
 
 def test_empty_database_migration_is_repeatable(clean_db: None) -> None:
