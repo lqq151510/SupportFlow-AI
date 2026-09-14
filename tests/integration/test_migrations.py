@@ -48,6 +48,10 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "knowledge_documents",
         "knowledge_chunks",
         "history_tickets",
+        "checkpoint_migrations",
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes",
     }
     with session_scope() as session:
         found = set(

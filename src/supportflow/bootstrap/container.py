@@ -18,10 +18,19 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from supportflow.agent.application.executor import RunExecutor
+from supportflow.agent.application.ports import (
+    Evidence,
+    KnowledgeRetrievalPort,
+    TicketFacts,
+)
 from supportflow.agent.application.scheduler import FirstRunScheduler
 from supportflow.agent.application.service import RunService
 from supportflow.agent.application.worker import RunExecutionUnit
 from supportflow.agent.domain.models import RunEvent, RunStatus
+from supportflow.agent.infrastructure.checkpoints import (
+    checkpoint_config,
+    postgres_checkpointer,
+)
 from supportflow.agent.infrastructure.partitions import ensure_run_event_partitions
 from supportflow.agent.infrastructure.repository import (
     SqlAlchemyRunEventRepository,
@@ -46,6 +55,7 @@ from supportflow.shared.config import Settings, get_settings
 from supportflow.shared.db import session_scope
 from supportflow.shared.idempotency import IdempotencyStore
 from supportflow.ticket.application.service import TicketService
+from supportflow.ticket.domain.models import TicketCategory
 from supportflow.ticket.infrastructure.repository import SqlAlchemyTicketRepository
 
 
@@ -124,22 +134,99 @@ def services_scope(settings: Settings | None = None) -> Iterator[Services]:
 # --- Worker 用 -----------------------------------------------------------------
 
 
+class TicketFactsAdapter:
+    """把 ``ticket`` 仓储收敛成 agent 需要的两个能力。
+
+    agent 只应看到「工单事实」与「写入分类」，而不是整个工单仓储 —— 见 AGENTS.md §3。
+    """
+
+    def __init__(self, repository: SqlAlchemyTicketRepository) -> None:
+        self._repository = repository
+
+    def facts(self, ticket_id: UUID) -> TicketFacts | None:
+        ticket = self._repository.find_by_id(ticket_id)
+        if ticket is None:
+            return None
+        return TicketFacts(
+            ticket_id=ticket.id,
+            ticket_no=ticket.ticket_no,
+            subject=ticket.subject,
+            body_cleaned=ticket.body_cleaned,
+            clean_version=ticket.clean_version,
+            status=ticket.status.value,
+        )
+
+    def assign_category(self, ticket_id: UUID, category: TicketCategory) -> None:
+        self._repository.assign_category(ticket_id, category)
+
+
+class RetrievalAdapter:
+    """把 ``KnowledgeService`` 的内部检索入口映射为 agent 侧的 ``Evidence``。"""
+
+    def __init__(self, knowledge: KnowledgeService) -> None:
+        self._knowledge = knowledge
+
+    def retrieve_for_run(self, query: str, *, limit: int) -> list[Evidence]:
+        return [
+            Evidence(
+                source_type=item.citation.source_type.value,
+                source_id=str(item.citation.source_id),
+                source_version=item.citation.source_version,
+                chunk_id=str(item.citation.chunk_id) if item.citation.chunk_id else None,
+                locator=item.citation.locator,
+                quote_text=item.citation.quote_text,
+                rank_no=item.citation.rank_no,
+                score=item.citation.score,
+                full_text_rank=item.full_text_rank,
+                vector_rank=item.vector_rank,
+            )
+            for item in self._knowledge.retrieve_for_run(query, limit=limit)
+        ]
+
+
+def build_execution_unit(
+    session: Session,
+    *,
+    settings: Settings | None = None,
+    gateway: ChatModelGateway | None = None,
+    retrieval: KnowledgeRetrievalPort | None = None,
+) -> RunExecutionUnit:
+    """装配一次运行所需的协作者。
+
+    ``gateway`` / ``retrieval`` 可注入替身，便于在不接触真实模型的前提下验证状态图行为。
+    """
+    cfg = settings or get_settings()
+    runs_repo = SqlAlchemyRunRepository(session)
+    knowledge = KnowledgeService(
+        SqlAlchemyKnowledgeRepository(session),
+        IdempotencyStore(session),
+        upload_dir=cfg.upload_dir,
+    )
+    executor = RunExecutor(
+        gateway=gateway or build_chat_gateway(cfg),
+        retrieval=retrieval or RetrievalAdapter(knowledge),
+        tickets=TicketFactsAdapter(SqlAlchemyTicketRepository(session)),
+        runs=runs_repo,
+        events=SqlAlchemyRunEventRepository(session),
+        steps=SqlAlchemyRunStepRepository(session),
+        database_url=cfg.database_url,
+        # 每个图节点一个事务边界：崩溃时该节点的写入整体回滚，重放不留半成品。
+        commit=session.commit,
+        max_attempts=cfg.model_max_attempts,
+        # 检查点实现由组合根注入，避免 application 层反向依赖 infrastructure 层。
+        checkpointer_factory=postgres_checkpointer,
+        config_for_run=checkpoint_config,
+        base_delay_seconds=0.5,
+    )
+    return RunExecutionUnit(runs=runs_repo, executor=executor)
+
+
 @contextmanager
 def execution_unit_scope(settings: Settings | None = None) -> Iterator[RunExecutionUnit]:
     """为 Worker 组装一次执行所需的协作者（独立事务）。"""
     cfg = settings or get_settings()
     with session_scope() as session:
-        runs_repo = SqlAlchemyRunRepository(session)
-        executor = RunExecutor(
-            gateway=build_chat_gateway(cfg),
-            runs=runs_repo,
-            events=SqlAlchemyRunEventRepository(session),
-            steps=SqlAlchemyRunStepRepository(session),
-            tickets=SqlAlchemyTicketRepository(session),
-            max_attempts=cfg.model_max_attempts,
-            base_delay_seconds=0.5,
-        )
-        yield RunExecutionUnit(runs=runs_repo, executor=executor)
+        yield build_execution_unit(session, settings=cfg)
 
 
 # --- 启动期准备 ----------------------------------------------------------------

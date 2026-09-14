@@ -40,9 +40,13 @@ class RunRepositoryPort(Protocol):
         chat_model_name: str | None = None,
     ) -> None: ...
 
-    def bump_counters(
-        self, run_id: UUID, *, steps: int = 0, tool_calls: int = 0
-    ) -> None: ...
+    def set_counters(self, run_id: UUID, *, steps: int, tool_calls: int) -> None:
+        """按绝对值写入计数器。
+
+        检查点重放会重复调用本方法，累加语义会把同一步骤数两次，因此这里以状态的
+        实际步数为准做覆盖写 —— 幂等边界在「状态」而不是「调用次数」。
+        """
+        ...
 
 
 class RunEventRepositoryPort(Protocol):
@@ -54,6 +58,12 @@ class RunEventRepositoryPort(Protocol):
 
 
 class RunStepRepositoryPort(Protocol):
-    def add(self, run_id: UUID, step: RunStepRecord) -> None: ...
+    def upsert(self, run_id: UUID, step: RunStepRecord) -> None:
+        """按 ``(run_id, step_no)`` 主键写入或覆盖。
+
+        使用 upsert 而不是 insert：崩溃恢复重跑同一个节点时步骤号不变，
+        覆盖写保证账本不出现重复行，``step_count`` 也保持稳定。
+        """
+        ...
 
     def list_steps(self, run_id: UUID) -> list[RunStepRecord]: ...

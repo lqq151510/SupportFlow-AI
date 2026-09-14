@@ -1,34 +1,35 @@
 """运行执行、租约互斥与 SSE 事件流的集成测试。
 
-阶段 2 的事件契约是**对外接口**（前端按 ``event:`` 分发），因此这里断言具体事件名，
+事件契约是**对外接口**（前端按 ``event:`` 分发），因此这里断言具体事件名，
 而不是「有事件就行」。
+
+阶段 3 起运行由 LangGraph 状态图驱动，节点固定为
+``load_ticket → classify_clean → retrieve_knowledge → tool_decision →
+generate_draft → validate_citations → persist_result``，共 7 个步骤。
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from supportflow.agent.application.executor import LEASE_LOST, RunExecutor
+from supportflow.agent.application.executor import LEASE_LOST
 from supportflow.agent.application.worker import AgentWorker
 from supportflow.agent.domain.models import RunStatus
-from supportflow.agent.infrastructure.repository import (
-    SqlAlchemyRunEventRepository,
-    SqlAlchemyRunRepository,
-    SqlAlchemyRunStepRepository,
-)
-from supportflow.bootstrap.container import execution_unit_scope
+from supportflow.agent.infrastructure.repository import SqlAlchemyRunRepository
+from supportflow.bootstrap.container import build_execution_unit, execution_unit_scope
 from supportflow.identity.domain.models import Role
 from supportflow.model.infrastructure.mock_gateway import MockChatGateway
 from supportflow.shared.db import session_scope
-from supportflow.ticket.infrastructure.repository import SqlAlchemyTicketRepository
-from tests.conftest import API
+from tests.conftest import API, parse_sse
 
 SUBJECT = "快递一直没到"
 BODY = "订单 A-2026-0901 的快递三天没有更新了，请帮我查一下物流"
+
+#: 状态图的正常路径步骤数。检索为空时会提前转人工，步数因此更少。
+HAPPY_PATH_STEPS = 7
 
 
 def _submit(client: TestClient, csrf: str, key: str) -> dict[str, str]:
@@ -51,39 +52,21 @@ def _run_worker_once(owner: str = "test-worker") -> bool:
     return worker.run_once()
 
 
-def _parse_sse(body: str) -> list[tuple[int | None, str, dict[str, object]]]:
-    """把 SSE 文本还原成 ``(id, event, data)`` 列表。"""
-    frames: list[tuple[int | None, str, dict[str, object]]] = []
-    for block in body.split("\n\n"):
-        if not block.strip() or block.startswith(":"):
-            continue
-        event_id: int | None = None
-        event_name = ""
-        data: dict[str, object] = {}
-        for line in block.split("\n"):
-            if line.startswith("id: "):
-                event_id = int(line[4:])
-            elif line.startswith("event: "):
-                event_name = line[7:]
-            elif line.startswith("data: "):
-                data = json.loads(line[6:])
-        if event_name:
-            frames.append((event_id, event_name, data))
-    return frames
-
-
 # --- Worker 执行 ------------------------------------------------------------
 
 
 def test_worker_completes_queued_run_and_classifies_ticket(
-    client: TestClient, demo_users: None, logged_in_customer: str
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
 ) -> None:
     submitted = _submit(client, logged_in_customer, "worker-key-0001")
     assert _run_worker_once() is True
 
     run = client.get(f"{API}/runs/{submitted['run_id']}").json()
     assert run["status"] == RunStatus.COMPLETED.value
-    assert run["step_count"] == 3
+    assert run["step_count"] == HAPPY_PATH_STEPS
     assert run["chat_model_name"] == "mock-chat-v1"
     assert run["error_code"] is None
 
@@ -92,6 +75,19 @@ def test_worker_completes_queued_run_and_classifies_ticket(
     assert ticket["category_label"] == "配送物流"
     # 工单状态不因分类而改变：关闭仍需人工。
     assert ticket["status"] == "OPEN"
+
+
+def test_run_without_any_evidence_goes_to_human(
+    client: TestClient, demo_users: None, logged_in_customer: str
+) -> None:
+    """知识库为空时检索不到证据，状态图必须转人工而不是生成无证据结论。"""
+    submitted = _submit(client, logged_in_customer, "no-evidence-key-1")
+    assert _run_worker_once() is True
+
+    run = client.get(f"{API}/runs/{submitted['run_id']}").json()
+    assert run["status"] == RunStatus.NEEDS_HUMAN.value
+    assert run["error_code"] == "retrieval_empty"
+    assert client.get(f"{API}/tickets/{submitted['ticket_id']}").json()["category"] is None
 
 
 def test_worker_returns_false_when_no_run_is_queued(
@@ -135,6 +131,7 @@ def test_second_run_while_first_is_active_is_rejected(
 def test_manual_retry_after_completion_creates_linked_run(
     client: TestClient,
     demo_users: None,
+    indexed_knowledge: None,
     logged_in_customer: str,
     login: Callable[..., str],
 ) -> None:
@@ -201,15 +198,8 @@ def test_executor_abandons_writeback_when_lease_is_lost(
         claimed = runs.claim(run_id, owner="worker-a", lease_seconds=60)
         assert claimed is not None
 
-        executor = RunExecutor(
-            gateway=MockChatGateway(),
-            runs=runs,
-            events=SqlAlchemyRunEventRepository(session),
-            steps=SqlAlchemyRunStepRepository(session),
-            tickets=SqlAlchemyTicketRepository(session),
-            max_attempts=1,
-        )
-        outcome = executor.execute(claimed, owner="worker-b")
+        unit = build_execution_unit(session, gateway=MockChatGateway())
+        outcome = unit.executor.execute(claimed, owner="worker-b")
 
     assert outcome.error_code == LEASE_LOST
     after = client.get(f"{API}/runs/{submitted['run_id']}").json()
@@ -242,7 +232,10 @@ def test_claim_next_skips_rows_locked_by_another_worker(
 
 
 def test_sse_stream_replays_events_and_closes_at_terminal_state(
-    client: TestClient, demo_users: None, logged_in_customer: str
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
 ) -> None:
     submitted = _submit(client, logged_in_customer, "sse-key-0001")
     assert _run_worker_once() is True
@@ -256,13 +249,15 @@ def test_sse_stream_replays_events_and_closes_at_terminal_state(
 
     body = response.text
     assert body.startswith("retry: 3000")
-    frames = _parse_sse(body)
+    frames = parse_sse(body)
 
     names = [name for _, name, _ in frames]
     assert names[0] == "run.started"
     assert names[-1] == "stream.closed"
     assert "run.completed" in names
-    assert names.count("run.step.completed") == 3
+    assert "retrieval.completed" in names
+    assert "draft.created" in names
+    assert names.count("run.step.completed") == HAPPY_PATH_STEPS
 
     ids = [event_id for event_id, _, _ in frames if event_id is not None]
     assert ids == sorted(ids)
@@ -288,12 +283,12 @@ def test_sse_resumes_from_last_event_id(
     assert _run_worker_once() is True
     url = f"{API}/runs/{submitted['run_id']}/events"
 
-    full = _parse_sse(client.get(url).text)
+    full = parse_sse(client.get(url).text)
     assert len(full) >= 3
     first_event_id = full[0][0]
     assert first_event_id is not None
 
-    resumed = _parse_sse(client.get(url, headers={"Last-Event-ID": str(first_event_id)}).text)
+    resumed = parse_sse(client.get(url, headers={"Last-Event-ID": str(first_event_id)}).text)
     # 已确认过的事件不会被重发，且后续内容与完整流一致。
     assert resumed[0][0] != first_event_id
     assert [frame[0] for frame in resumed] == [frame[0] for frame in full[1:]]
@@ -306,10 +301,10 @@ def test_sse_after_query_is_equivalent_to_last_event_id_header(
     assert _run_worker_once() is True
     url = f"{API}/runs/{submitted['run_id']}/events"
 
-    full = _parse_sse(client.get(url).text)
+    full = parse_sse(client.get(url).text)
     cursor = full[1][0]
-    by_header = _parse_sse(client.get(url, headers={"Last-Event-ID": str(cursor)}).text)
-    by_query = _parse_sse(client.get(f"{url}?after={cursor}").text)
+    by_header = parse_sse(client.get(url, headers={"Last-Event-ID": str(cursor)}).text)
+    by_query = parse_sse(client.get(f"{url}?after={cursor}").text)
     assert [f[0] for f in by_header] == [f[0] for f in by_query]
 
 

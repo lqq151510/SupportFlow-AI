@@ -6,6 +6,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -134,16 +135,12 @@ class SqlAlchemyRunRepository:
             update(AgentRunRow).where(AgentRunRow.id == run_id).values(**values)
         )
 
-    def bump_counters(self, run_id: UUID, *, steps: int = 0, tool_calls: int = 0) -> None:
-        if not steps and not tool_calls:
-            return
+    def set_counters(self, run_id: UUID, *, steps: int, tool_calls: int) -> None:
+        """覆盖写计数器。重放时同一步骤不会因为二次调用而翻倍。"""
         self._session.execute(
             update(AgentRunRow)
             .where(AgentRunRow.id == run_id)
-            .values(
-                step_count=AgentRunRow.step_count + steps,
-                tool_call_count=AgentRunRow.tool_call_count + tool_calls,
-            )
+            .values(step_count=steps, tool_call_count=tool_calls)
         )
 
     @staticmethod
@@ -205,14 +202,24 @@ class SqlAlchemyRunStepRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def add(self, run_id: UUID, step: RunStepRecord) -> None:
-        self._session.add(
-            RunStepRow(
+    def upsert(self, run_id: UUID, step: RunStepRecord) -> None:
+        """主键 ``(run_id, step_no)`` 冲突即覆盖：崩溃重跑同一节点不会留下重复行。"""
+        self._session.execute(
+            insert(RunStepRow)
+            .values(
                 run_id=run_id,
                 step_no=step.step_no,
                 node_name=step.node_name,
                 latency_ms=step.latency_ms,
                 detail=step.detail,
+            )
+            .on_conflict_do_update(
+                index_elements=[RunStepRow.run_id, RunStepRow.step_no],
+                set_={
+                    "node_name": step.node_name,
+                    "latency_ms": step.latency_ms,
+                    "detail": step.detail,
+                },
             )
         )
         self._session.flush()

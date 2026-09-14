@@ -34,6 +34,12 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%"
 target_metadata = all_metadata()
 
 _RUN_EVENT_PARTITION_PREFIX = "run_events_"
+_LANGGRAPH_CHECKPOINT_TABLES = {
+    "checkpoint_migrations",
+    "checkpoints",
+    "checkpoint_blobs",
+    "checkpoint_writes",
+}
 
 
 def _is_run_event_partition(name: str | None) -> bool:
@@ -53,6 +59,10 @@ def include_object(
     if not reflected:
         return True
     if type_ == "table" and _is_run_event_partition(name):
+        return False
+    # LangGraph Saver 的表由 0004 迁移维护，但不属于 SQLAlchemy 业务元数据。
+    # 不过滤会让 ``alembic check`` 错误建议删除检查点，破坏崩溃恢复能力。
+    if reflected and type_ == "table" and name in _LANGGRAPH_CHECKPOINT_TABLES:
         return False
     if type_ == "index":
         parent = getattr(getattr(obj, "table", None), "name", None)

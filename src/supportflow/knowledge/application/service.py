@@ -206,9 +206,20 @@ class KnowledgeService:
     def search(self, principal: Principal, query: str, *, limit: int = 5) -> list[SearchResult]:
         if not principal.is_staff:
             raise Forbidden("仅坐席与管理员可以检索内部知识")
+        return self.retrieve_for_run(query, limit=limit)
+
+    def retrieve_for_run(self, query: str, *, limit: int = 5) -> list[SearchResult]:
+        """**运行内部**检索入口：供 Agent Worker 在执行运行图时调用。
+
+        Agent 运行没有 HTTP 调用者身份，而检索结果只在服务端使用（不会直接下发给客户），
+        因此这里不做角色判定；HTTP 侧一律走 ``search``，权限判定仍然只在那一条路径上。
+
+        与 ``search`` 的另一处差异：查询无法分词时返回空列表而不是 400 —— 运行内部
+        把「检索不到证据」当作一种正常结果，由状态图判定转人工。
+        """
         normalized = tokenize(query)
         if not normalized:
-            raise InvalidRequest("查询中没有可检索词")
+            return []
         return self._repository.search(
             query_tokens=normalized,
             embedding=mock_embedding(query),

@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,6 +36,32 @@ from supportflow.shared.db import reset_engine_cache, session_scope
 REPO_ROOT = Path(__file__).resolve().parents[1]
 API = "/api/v1"
 PG_IMAGE = "pgvector/pgvector:pg17"
+
+
+def parse_sse(body: str) -> list[tuple[int | None, str, dict[str, object]]]:
+    """把 SSE 文本还原成 ``(id, event, data)`` 列表。
+
+    ``id`` 为 ``None`` 的帧由服务端即时生成（例如 ``stream.closed``），不对应持久化事件。
+    """
+    import json as _json
+
+    frames: list[tuple[int | None, str, dict[str, object]]] = []
+    for block in body.split("\n\n"):
+        if not block.strip() or block.startswith(":"):
+            continue
+        event_id: int | None = None
+        event_name = ""
+        data: dict[str, object] = {}
+        for line in block.split("\n"):
+            if line.startswith("id: "):
+                event_id = int(line[4:])
+            elif line.startswith("event: "):
+                event_name = line[7:]
+            elif line.startswith("data: "):
+                data = _json.loads(line[6:])
+        if event_name:
+            frames.append((event_id, event_name, data))
+    return frames
 
 #: 按外键依赖倒序排列，TRUNCATE ... CASCADE 一次性清空。
 BUSINESS_TABLES = (
@@ -178,3 +205,31 @@ def logged_in_agent(demo_users: None, login: Callable[..., str]) -> str:
 @pytest.fixture
 def logged_in_admin(demo_users: None, login: Callable[..., str]) -> str:
     return login("admin@example.com")
+
+
+@pytest.fixture
+def indexed_knowledge(
+    client: TestClient, demo_users: None, login: Callable[..., str]
+) -> None:
+    """导入一条知识，让 Agent 运行能检索到证据并产出可交付草稿。
+
+    状态图遵守 PLAN.md §3：检索为空时转人工，因此需要「完成」结果的用例必须先建索引。
+    导入使用管理员会话；调用方应把 ``logged_in_customer`` 排在本夹具之后，
+    以便后续请求回到客户身份。
+    """
+    admin_csrf = login("admin@example.com")
+    response = client.post(
+        f"{API}/knowledge/imports",
+        files={
+            "file": (
+                "delivery.md",
+                "# 物流延误处理\n物流长时间未更新时，核实后补发并告知客户新的时效。".encode(),
+                "text/markdown",
+            )
+        },
+        headers={
+            "X-CSRF-Token": admin_csrf,
+            "Idempotency-Key": f"seed-knowledge-{uuid4().hex}",
+        },
+    )
+    assert response.status_code == 202, response.text
