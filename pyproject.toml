@@ -33,6 +33,17 @@ dev = [
     "testcontainers[postgres]>=4.8.0",
 ]
 
+# 依赖索引在项目内显式固定。
+#
+# 本机 `uv lock` 记录的下载源会在 pypi.org 与第三方镜像之间漂移：实测**两次相同输入**
+# 分别产出了两种源，进而在提交里引入上千行与改动无关的 URL 改写。这里把默认索引钉住，
+# 并由 tests/unit/test_lockfile_registry.py 断言锁文件只使用该索引，使漂移无法无声发生。
+# 需要本地加速时请用环境变量覆盖（如 `UV_DEFAULT_INDEX=...`），不要改动本文件。
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
