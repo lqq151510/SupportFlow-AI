@@ -7,7 +7,9 @@
    不会留下半成品；已完成节点由检查点跳过，既不重复调用模型，也不重复写业务结果。
 2. **运行终态在图层之外落定。** 图只负责推进状态，``finish`` 与计数器由执行器统一写入，
    因此「图跑完了但进程死了」也能在下次恢复时补齐终态，不会产生第二个业务效果。
-3. **租约是最后一道闸。** 执行前与 ``persist_result`` 内各校验一次归属，租约被接管即
+3. **网关按运行的模式解析。** 运行可按次指定 ``model_mode``；若沿用装配期的固定网关，
+   就会出现「标记 real、实由 Mock 产出」的失真（AGENTS.md §10）。
+4. **租约是最后一道闸。** 执行前与 ``persist_result`` 内各校验一次归属，租约被接管即
    放弃写回并保持运行状态不变。
 
 对外契约不变：SSE 事件名沿用阶段 2 的一套名称。
@@ -46,6 +48,7 @@ from supportflow.agent.domain.ports import (
     RunStepRepositoryPort,
 )
 from supportflow.model.domain.gateway import ChatModelGateway
+from supportflow.model.infrastructure.factory import GatewayResolver
 from supportflow.ticket.application.catalog import label_of, parse_category
 
 logger = logging.getLogger(__name__)
@@ -66,7 +69,7 @@ class RunExecutor:
     def __init__(
         self,
         *,
-        gateway: ChatModelGateway,
+        gateway_for: GatewayResolver,
         retrieval: KnowledgeRetrievalPort,
         tickets: TicketGatewayPort,
         runs: RunRepositoryPort,
@@ -80,7 +83,7 @@ class RunExecutor:
         base_delay_seconds: float = 0.0,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._gateway = gateway
+        self._gateway_for = gateway_for
         self._retrieval = retrieval
         self._tickets = tickets
         self._runs = runs
@@ -99,8 +102,11 @@ class RunExecutor:
             logger.warning("租约已被接管，放弃执行: run_id=%s owner=%s", run.id, owner)
             return ExecutionOutcome(status=RunStatus.RUNNING, error_code=LEASE_LOST)
 
+        # 网关按**本运行**的模式解析：按次指定的 real 必须真的走真实网关。
+        gateway = self._gateway_for(run.model_mode)
+
         deps = GraphDeps(
-            gateway=self._gateway,
+            gateway=gateway,
             retrieval=self._retrieval,
             tickets=self._tickets,
             runs=self._runs,
@@ -122,10 +128,10 @@ class RunExecutor:
                 logger.info("从检查点恢复运行: run_id=%s", run.id)
                 state = compiled.invoke(None, config)
             else:
-                self._emit_started(run, owner=owner)
+                self._emit_started(run, owner=owner, gateway=gateway)
                 state = compiled.invoke(self._initial_state(run, owner), config)
 
-        return self._finalize(run, state)
+        return self._finalize(run, state, gateway=gateway)
 
     # --- 内部 ---------------------------------------------------------------
 
@@ -141,11 +147,13 @@ class RunExecutor:
             "next_step_no": 1,
         }
 
-    def _emit_started(self, run: AgentRun, *, owner: str) -> None:
+    def _emit_started(
+        self, run: AgentRun, *, owner: str, gateway: ChatModelGateway
+    ) -> None:
         self._events.append(
             run.id,
             RunEventType.RUN_STARTED,
-            {"model_mode": run.model_mode, "model": self._gateway.model_name, "owner": owner},
+            {"model_mode": run.model_mode, "model": gateway.model_name, "owner": owner},
         )
         self._commit()
 
@@ -157,7 +165,9 @@ class RunExecutor:
             and current.lease_owner == owner
         )
 
-    def _finalize(self, run: AgentRun, state: dict[str, object]) -> ExecutionOutcome:
+    def _finalize(
+        self, run: AgentRun, state: dict[str, object], *, gateway: ChatModelGateway
+    ) -> ExecutionOutcome:
         status = str(state.get("status") or STATE_FAILED)
         steps = max(_as_int(state.get("next_step_no"), 1) - 1, 0)
         tool_calls = _as_int(state.get("tool_calls"))
@@ -173,7 +183,7 @@ class RunExecutor:
             self._runs.finish(
                 run.id,
                 status=RunStatus.COMPLETED,
-                chat_model_name=str(state.get("model_name") or self._gateway.model_name),
+                chat_model_name=str(state.get("model_name") or gateway.model_name),
             )
             category = str(state.get("category") or "")
             parsed = parse_category(category)
@@ -185,7 +195,7 @@ class RunExecutor:
                     "category_label": label_of(parsed) if parsed else "",
                     "confidence": _as_float(state.get("category_confidence")),
                     "rationale": str(state.get("category_rationale") or ""),
-                    "model": str(state.get("model_name") or self._gateway.model_name),
+                    "model": str(state.get("model_name") or gateway.model_name),
                     "model_mode": run.model_mode,
                     "citation_count": len(_as_list(state.get("citations"))),
                     "tool_calls": tool_calls,

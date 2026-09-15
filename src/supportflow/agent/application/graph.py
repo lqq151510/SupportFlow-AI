@@ -106,6 +106,7 @@ class AgentGraphState(TypedDict, total=False):
     evidence: list[dict[str, Any]]
     tool_calls: int
     tool_trace: list[dict[str, Any]]
+    tool_signatures: list[str]
     tool_loop: bool
 
     draft_text: str
@@ -306,6 +307,7 @@ def tool_decision(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
                     body_cleaned=state["body_cleaned"],
                     category=state.get("category", ""),
                     evidence_count=len(state.get("evidence", [])),
+                    remaining_calls=MAX_TOOL_CALLS - calls,
                 )
             ),
             attempts=deps.max_attempts,
@@ -330,6 +332,20 @@ def tool_decision(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
         # 模型认为证据已足够：结束工具循环，进入草稿生成。
         return {
             **_end_step(deps, state, scope, "no_tool_requested"),
+            "tool_calls": calls,
+            "tool_loop": False,
+            "status": STATE_RUNNING,
+        }
+
+    seen = list(state.get("tool_signatures", []))
+    if decision.signature() in seen:
+        # 模型在原地打转：同样的工具 + 同样的参数不会带来新信息。
+        # 这里**不是放宽上限**，而是提前结束循环 —— 证据是否足够仍由引用校验判定，
+        # 因此既不会掩盖证据不足，也不会白白烧掉额度。
+        return {
+            **_end_step(
+                deps, state, scope, f"tool_no_progress: repeated {decision.tool}"
+            ),
             "tool_calls": calls,
             "tool_loop": False,
             "status": STATE_RUNNING,
@@ -368,6 +384,7 @@ def tool_decision(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
         **_end_step(deps, state, scope, f"tool={decision.tool} call_no={calls + 1}"),
         "tool_calls": calls + 1,
         "tool_trace": trace,
+        "tool_signatures": [*seen, decision.signature()],
         "evidence": evidence,
         "tool_loop": True,
         "status": STATE_RUNNING,

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -36,6 +37,10 @@ from supportflow.shared.db import reset_engine_cache, session_scope
 REPO_ROOT = Path(__file__).resolve().parents[1]
 API = "/api/v1"
 PG_IMAGE = "pgvector/pgvector:pg17"
+
+#: 测试专用主密钥：base64 编码的 32 字节，仅用于验证加解密行为。
+#: **不是任何真实环境的密钥**，真实主密钥只允许来自部署环境变量。
+TEST_MASTER_KEY = base64.b64encode(b"supportflow-test-master-key-32b!").decode("ascii")
 
 
 def parse_sse(body: str) -> list[tuple[int | None, str, dict[str, object]]]:
@@ -69,6 +74,7 @@ BUSINESS_TABLES = (
     "knowledge_chunks",
     "knowledge_documents",
     "import_jobs",
+    "model_configs",
     "idempotency_records",
     "audit_logs",
     "run_steps",
@@ -109,10 +115,18 @@ def configured_env(database_url: str) -> Iterator[None]:
     默认的 localhost:5432 跑测试 —— 会静默连到开发库上。
     """
     previous = {
-        key: os.environ.get(key) for key in ("DATABASE_URL", "MODEL_MODE", "SEED_DEMO_PASSWORD")
+        key: os.environ.get(key)
+        for key in (
+            "DATABASE_URL",
+            "MODEL_MODE",
+            "SEED_DEMO_PASSWORD",
+            "MODEL_SECRET_MASTER_KEY",
+        )
     }
     os.environ["DATABASE_URL"] = database_url
     os.environ["MODEL_MODE"] = "mock"
+    # 加密路径需要主密钥；用测试专用值，避免真实密钥进入测试进程。
+    os.environ["MODEL_SECRET_MASTER_KEY"] = TEST_MASTER_KEY
     _reset_caches()
     try:
         yield

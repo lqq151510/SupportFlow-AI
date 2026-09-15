@@ -62,7 +62,13 @@ TOOL_DECISION_SYSTEM_PROMPT = (
     f"可选工具：{', '.join(sorted(EXECUTABLE_TOOLS))}。\n"
     "只输出一个 JSON 对象，字段为：\n"
     '{"tool": <上方工具名之一，或 null 表示证据已足够>, "arguments": {"query": "<检索词>"}}\n'
-    "不要输出 Markdown 代码块或任何额外说明。"
+    "不要输出 Markdown 代码块或任何额外说明。\n"
+    "\n"
+    "判断规则（必须遵守）：\n"
+    "1. 已有证据足以回答客户问题时，**必须**返回 {\"tool\": null}，不要为了保险而继续检索；\n"
+    "2. **不要重复**提交相同的工具与相同的检索词 —— 同样的调用不会带来任何新信息；\n"
+    "3. 现有证据为空或明显不相关时，可以换一个**不同**的检索词再试；\n"
+    "4. 工具调用次数有硬上限，达到上限后本次运行会直接转人工，因此不要无谓消耗。"
 )
 
 
@@ -73,9 +79,18 @@ class ToolDecision:
     tool: str | None
     arguments: dict[str, str]
 
+    def signature(self) -> str:
+        """工具 + 参数的稳定指纹，用于识别「原地打转」的重复请求。"""
+        return f"{self.tool}:{json.dumps(self.arguments, sort_keys=True, ensure_ascii=False)}"
+
 
 def build_tool_decision_request(
-    *, subject: str, body_cleaned: str, category: str, evidence_count: int
+    *,
+    subject: str,
+    body_cleaned: str,
+    category: str,
+    evidence_count: int,
+    remaining_calls: int = MAX_TOOL_CALLS,
 ) -> ChatRequest:
     return ChatRequest(
         messages=(
@@ -86,7 +101,8 @@ def build_tool_decision_request(
                     f"工单标题：{subject}\n"
                     f"工单正文：\n{body_cleaned}\n"
                     f"已判定分类：{category}\n"
-                    f"当前已检索到的证据条数：{evidence_count}"
+                    f"当前已检索到的证据条数：{evidence_count}\n"
+                    f"剩余可调用工具次数：{remaining_calls}（达到上限将转人工）"
                 ),
             ),
         ),

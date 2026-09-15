@@ -52,6 +52,7 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "checkpoints",
         "checkpoint_blobs",
         "checkpoint_writes",
+        "model_configs",
     }
     with session_scope() as session:
         found = set(
@@ -154,6 +155,23 @@ def test_knowledge_indexes_use_vector_and_gin(migrated: None) -> None:
     assert "USING hnsw" in definitions["ix_knowledge_chunks_embedding_hnsw"]
     assert "USING gin" in definitions["ix_history_tickets_tsv"]
     assert "USING hnsw" in definitions["ix_history_tickets_embedding_hnsw"]
+
+
+def test_model_configs_enabled_is_unique_per_capability(migrated: None) -> None:
+    """每类能力至多一个启用配置。
+
+    这是「单工作区每类能力只启用一个」的**唯一保证者** —— 应用层不做先查后写判重，
+    启用新配置必须在一个事务里先停用旧的。
+    """
+    definition = _scalar(
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'model_configs' "
+        "AND indexname = 'uq_model_configs_enabled_per_capability'"
+    )
+    assert isinstance(definition, str)
+    assert "UNIQUE" in definition
+    assert "capability" in definition
+    # 谓词必须限定 enabled，否则「每个能力只能有一条记录」会被误当成约束。
+    assert "WHERE enabled" in definition
 
 
 def test_empty_database_migration_is_repeatable(clean_db: None) -> None:

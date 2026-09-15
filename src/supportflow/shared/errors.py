@@ -39,6 +39,12 @@ class AppError(Exception):
         super().__init__(detail or self.title)
         self.detail = detail
         self.extra = extra
+        #: 上游返回的原始诊断信息。
+        #:
+        #: **刻意不放进 ``extra``** —— ``extra`` 会被 ``problem_response`` 合并进响应体，
+        #: 而 AGENTS.md §8 要求不把底层异常文本暴露给客户端。需要用它的只有
+        #: 管理员专用的连接测试路径，那里显式读取本属性。
+        self.upstream_message: str | None = None
 
 
 class InvalidRequest(AppError):
@@ -114,6 +120,33 @@ class ModelUnavailable(AppError):
     status = 503
     code = "model_unavailable"
     title = "模型服务暂时不可用"
+
+
+class ModelAuthenticationFailed(AppError):
+    """上游拒绝我们的凭据：**不重试**。
+
+    参数与权限错误重试多少次都是同样的结果，只会放大限流与延迟 —— 见 AGENTS.md §5。
+    """
+
+    status = 502
+    code = "model_auth_failed"
+    title = "模型服务拒绝了当前凭据"
+
+
+class ModelRequestRejected(AppError):
+    """上游因请求本身（模型名、参数、额度）拒绝：**不重试**。"""
+
+    status = 502
+    code = "model_request_rejected"
+    title = "模型服务拒绝了该请求"
+
+
+class ModelConfigInvalid(AppError):
+    """模型配置不可用或未配置完整（例如缺少主密钥、未启用任何聊天配置）。"""
+
+    status = 503
+    code = "model_config_invalid"
+    title = "模型配置不可用"
 
 
 class ModelResponseInvalid(AppError):

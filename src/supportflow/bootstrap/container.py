@@ -48,8 +48,15 @@ from supportflow.identity.infrastructure.security import (
 )
 from supportflow.knowledge.application.service import KnowledgeService
 from supportflow.knowledge.infrastructure.repository import SqlAlchemyKnowledgeRepository
+from supportflow.model.application.service import ModelConfigService
 from supportflow.model.domain.gateway import ChatModelGateway
-from supportflow.model.infrastructure.factory import available_model_modes, build_chat_gateway
+from supportflow.model.infrastructure.crypto import cipher_from_settings
+from supportflow.model.infrastructure.factory import (
+    GatewayResolver,
+    available_model_modes,
+    build_gateway_resolver,
+)
+from supportflow.model.infrastructure.repository import SqlAlchemyModelConfigRepository
 from supportflow.shared.audit import AuditRecorder
 from supportflow.shared.config import Settings, get_settings
 from supportflow.shared.db import session_scope
@@ -66,9 +73,9 @@ class Services:
     auth: AuthService
     tickets: TicketService
     knowledge: KnowledgeService
+    model_configs: ModelConfigService
     runs: RunService
     audit: AuditRecorder
-    gateway: ChatModelGateway
 
 
 def build_services(session: Session, settings: Settings | None = None) -> Services:
@@ -79,6 +86,7 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
     user_sessions = SqlAlchemySessionRepository(session)
     tickets_repo = SqlAlchemyTicketRepository(session)
     knowledge_repo = SqlAlchemyKnowledgeRepository(session)
+    model_configs = build_model_config_service(session, cfg)
     runs_repo = SqlAlchemyRunRepository(session)
     events_repo = SqlAlchemyRunEventRepository(session)
     steps_repo = SqlAlchemyRunStepRepository(session)
@@ -90,7 +98,9 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
         token_source,
         session_ttl_seconds=cfg.session_ttl_seconds,
     )
-    available_modes = available_model_modes()
+    available_modes = available_model_modes(
+        chat_configured=model_configs.chat_capability_configured()
+    )
     tickets = TicketService(
         tickets_repo,
         IdempotencyStore(session),
@@ -118,9 +128,37 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
         auth=auth,
         tickets=tickets,
         knowledge=knowledge,
+        model_configs=model_configs,
         runs=runs,
         audit=AuditRecorder(session),
-        gateway=build_chat_gateway(cfg),
+    )
+
+
+def build_model_config_service(session: Session, settings: Settings) -> ModelConfigService:
+    """模型配置服务。
+
+    ``cipher_from_settings`` 以工厂形式传入：主密钥未配置时，只有真正做加解密才失败，
+    而不是让 mock 模式的整个容器起不来。
+    """
+    return ModelConfigService(
+        SqlAlchemyModelConfigRepository(session),
+        lambda: cipher_from_settings(settings),
+        request_timeout_seconds=settings.model_request_timeout_seconds,
+        max_attempts=settings.model_max_attempts,
+    )
+
+
+def build_gateway_resolver_for(
+    cfg: Settings, model_configs: ModelConfigService
+) -> GatewayResolver:
+    """构造「运行模式 → 网关」的解析器。
+
+    Mock 模式**不会**触碰密文，因此未配置主密钥也不影响本地开发与测试；
+    real 模式则要求存在已启用且可解密的聊天配置，否则由 factory 直接失败。
+    """
+    return build_gateway_resolver(
+        default_mode=cfg.model_mode,
+        resolve_chat_config=model_configs.resolve_chat_config,
     )
 
 
@@ -189,11 +227,14 @@ def build_execution_unit(
     *,
     settings: Settings | None = None,
     gateway: ChatModelGateway | None = None,
+    gateway_for: GatewayResolver | None = None,
     retrieval: KnowledgeRetrievalPort | None = None,
 ) -> RunExecutionUnit:
     """装配一次运行所需的协作者。
 
-    ``gateway`` / ``retrieval`` 可注入替身，便于在不接触真实模型的前提下验证状态图行为。
+    ``gateway`` 注入固定替身（测试常用，对所有模式返回同一个网关）；
+    ``gateway_for`` 注入按运行模式解析的解析器；两者都不给则按部署配置解析。
+    ``retrieval`` 同样可注入替身，便于在不接触真实模型的前提下验证状态图行为。
     """
     cfg = settings or get_settings()
     runs_repo = SqlAlchemyRunRepository(session)
@@ -202,8 +243,15 @@ def build_execution_unit(
         IdempotencyStore(session),
         upload_dir=cfg.upload_dir,
     )
+    model_configs = build_model_config_service(session, cfg)
+    if gateway_for is None:
+        if gateway is not None:
+            gateway_for = lambda _mode: gateway  # noqa: E731 - 固定替身
+        else:
+            gateway_for = build_gateway_resolver_for(cfg, model_configs)
+
     executor = RunExecutor(
-        gateway=gateway or build_chat_gateway(cfg),
+        gateway_for=gateway_for,
         retrieval=retrieval or RetrievalAdapter(knowledge),
         tickets=TicketFactsAdapter(SqlAlchemyTicketRepository(session)),
         runs=runs_repo,

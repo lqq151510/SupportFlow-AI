@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from uuid import UUID
 
 import pytest
@@ -22,9 +23,18 @@ from sqlalchemy import text
 
 from supportflow.agent.application.tools import MAX_TOOL_CALLS
 from supportflow.agent.application.worker import AgentWorker
-from supportflow.agent.domain.models import RunStatus
-from supportflow.agent.infrastructure.repository import SqlAlchemyRunRepository
-from supportflow.bootstrap.container import build_execution_unit, execution_unit_scope
+from supportflow.agent.domain.models import RunStatus, RunStepRecord
+from supportflow.agent.infrastructure.repository import (
+    SqlAlchemyRunRepository,
+    SqlAlchemyRunStepRepository,
+)
+from supportflow.bootstrap.container import (
+    build_execution_unit,
+    build_services,
+    execution_unit_scope,
+)
+from supportflow.identity.domain.models import Principal, Role
+from supportflow.identity.infrastructure.repository import SqlAlchemyUserRepository
 from supportflow.model.domain.gateway import (
     ChatCompletion,
     ChatMessage,
@@ -32,6 +42,8 @@ from supportflow.model.domain.gateway import (
     ChatUsage,
     ModelMode,
 )
+from supportflow.model.domain.models import ModelCapability, ModelProtocol
+from supportflow.model.infrastructure.mock_gateway import MockChatGateway
 from supportflow.shared.db import session_scope
 from tests.conftest import API, parse_sse
 
@@ -64,13 +76,21 @@ class ScriptedGateway:
     真实模型不在本阶段验证范围内（S3 才接真实网关），这里只验证状态图的控制流。
     """
 
-    def __init__(self, *, tool_requests: int = 0, crash_on_call: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        tool_requests: int = 0,
+        crash_on_call: int | None = None,
+        vary_query: bool = True,
+    ) -> None:
         self.calls = 0
         self.classification_calls = 0
         self.decision_calls = 0
         self.draft_calls = 0
         self.tool_requests = tool_requests
         self.crash_on_call = crash_on_call
+        #: ``False`` 时每次都用同一组参数，用于验证「原地打转」保护。
+        self.vary_query = vary_query
 
     @property
     def mode(self) -> ModelMode:
@@ -92,8 +112,10 @@ class ScriptedGateway:
         elif _DECISION_MARK in system:
             self.decision_calls += 1
             if self.decision_calls <= self.tool_requests:
+                # 默认每次换检索词：相同参数会被「原地打转」保护提前截断。
+                query = f"物流-{self.decision_calls}" if self.vary_query else "物流"
                 body = json.dumps(
-                    {"tool": "search_knowledge", "arguments": {"query": "物流"}},
+                    {"tool": "search_knowledge", "arguments": {"query": query}},
                     ensure_ascii=False,
                 )
             else:
@@ -153,6 +175,11 @@ def _step_rows(run_id: UUID) -> list[tuple[int, str]]:
             {"run_id": run_id},
         ).all()
     return [(int(row[0]), str(row[1])) for row in rows]
+
+
+def _step_records(run_id: UUID) -> list[RunStepRecord]:
+    with session_scope() as session:
+        return SqlAlchemyRunStepRepository(session).list_steps(run_id)
 
 
 def _duplicate_step_numbers(run_id: UUID) -> list[int]:
@@ -304,6 +331,35 @@ def test_empty_retrieval_refuses_draft_and_hands_off(
     assert names.count("run.needs_human") == 1
 
 
+def test_repeated_identical_tool_request_stops_the_loop_early(
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
+) -> None:
+    """模型反复提交**同一个**工具调用时提前结束循环，而不是耗尽上限。
+
+    这是真实模型（glm-4-flash）暴露出来的行为：它会连续请求同一个检索词。
+    提前结束不是放宽上限 —— 证据是否足够仍由引用校验判定，因此既不会掩盖证据不足，
+    也不会白白烧掉额度。这里断言它**没有**走到第 8 次。
+    """
+    submitted = _submit(client, logged_in_customer, "graph-no-progress-1")
+    run_id = UUID(submitted["run_id"])
+    _claim(run_id)
+
+    gateway = ScriptedGateway(tool_requests=MAX_TOOL_CALLS + 5, vary_query=False)
+    outcome = _execute(run_id, gateway)
+
+    run = client.get(f"{API}/runs/{run_id}").json()
+    assert run["tool_call_count"] < MAX_TOOL_CALLS, "重复请求没有提前截断"
+    # 循环被截断后继续走草稿与引用校验：证据有效则正常完成。
+    assert outcome.status is RunStatus.COMPLETED
+    assert outcome.error_code is None
+
+    details = [row.detail or "" for row in _step_records(run_id)]
+    assert any("tool_no_progress" in detail for detail in details)
+
+
 def test_tool_call_limit_is_not_reached_when_model_stops_asking(
     client: TestClient,
     demo_users: None,
@@ -382,6 +438,110 @@ def test_worker_rerun_after_completion_does_not_duplicate_effects(
 
     assert _run_worker_once() is False
     assert _step_rows(UUID(submitted["run_id"])) == steps_after_first
+
+
+# --- 网关按运行模式解析（防止「标记 real、实由 Mock 产出」） ------------------
+
+
+class RecordingGateway(MockChatGateway):
+    """记录调用次数的 Mock 网关，并给自己一个可区分的名字。"""
+
+    def __init__(self, label: str) -> None:
+        super().__init__()
+        self.label = label
+        self.calls = 0
+
+    @property
+    def model_name(self) -> str:
+        return f"recorder-{self.label}"
+
+    def complete(self, request: ChatRequest) -> ChatCompletion:
+        self.calls += 1
+        return super().complete(request)
+
+
+def _enable_fake_chat_config() -> None:
+    """建一个启用的聊天配置，使 ``real`` 被判定为可用（无需真实上游）。"""
+    with session_scope() as session:
+        services = build_services(session)
+        row = SqlAlchemyUserRepository(session).find_by_email("admin@example.com")
+        assert row is not None
+        admin = Principal(
+            user_id=row.id,
+            email=row.email,
+            display_name=row.display_name,
+            role=Role(row.role),
+        )
+        config = services.model_configs.create(
+            admin,
+            capability=ModelCapability.CHAT,
+            protocol=ModelProtocol.OPENAI_COMPATIBLE,
+            base_url="https://model.example.com/v1",
+            model_name="fake-chat-model",
+            api_key="sk-fake-config-key",
+        )
+        services.model_configs.enable(admin, config.id)
+
+
+def _execute_with_mode_routing(
+    run_id: UUID, *, owner: str = "worker-a"
+) -> tuple[RecordingGateway, RecordingGateway]:
+    """执行一次运行，返回 ``(mock 记录器, real 记录器)`` 供断言谁被调用过。"""
+    mock_gateway = RecordingGateway("mock")
+    real_gateway = RecordingGateway("real")
+
+    def resolver(model_mode: str | None) -> MockChatGateway:
+        return real_gateway if model_mode == "real" else mock_gateway
+
+    with session_scope() as session:
+        unit = build_execution_unit(session, gateway_for=resolver)
+        run = unit.runs.find_by_id(run_id)
+        assert run is not None
+        unit.executor.execute(run, owner=owner)
+    return mock_gateway, real_gateway
+
+
+def test_run_mode_selects_the_gateway_not_the_deployment_default(
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
+    login: Callable[..., str],
+) -> None:
+    """运行按次指定 ``real`` 时，执行器必须真的走真实网关。
+
+    若沿用装配期按部署默认值建的网关，一次 ``real`` 运行会被 Mock 产出 ——
+    运行记录却写着 ``real``，评测数据即失真（AGENTS.md §10）。
+    """
+    _enable_fake_chat_config()
+    submitted = _submit(client, logged_in_customer, "mode-gateway-key-1")
+
+    # 第一次运行沿用部署默认（测试环境为 mock）。
+    _claim(UUID(submitted["run_id"]))
+    mock_used, real_used = _execute_with_mode_routing(UUID(submitted["run_id"]))
+    assert mock_used.calls > 0
+    assert real_used.calls == 0
+
+    # 人工按次指定 real —— 现在应被接受（存在已启用的聊天配置）。
+    client.post(f"{API}/auth/logout", headers={"X-CSRF-Token": logged_in_customer})
+    staff_csrf = login("agent@example.com")
+    created = client.post(
+        f"{API}/tickets/{submitted['ticket_id']}/runs",
+        json={"model_mode": "real"},
+        headers={"X-CSRF-Token": staff_csrf, "Idempotency-Key": "mode-gateway-run-1"},
+    )
+    assert created.status_code == 202, created.text
+    real_run_id = UUID(created.json()["id"])
+    assert created.json()["model_mode"] == "real"
+
+    _claim(real_run_id)
+    mock_used_2, real_used_2 = _execute_with_mode_routing(real_run_id)
+    assert real_used_2.calls > 0, "标记为 real 的运行没有走真实网关"
+    assert mock_used_2.calls == 0, "标记为 real 的运行被 Mock 产出了"
+
+    # 运行记录如实反映产物来自哪个模型。
+    run = client.get(f"{API}/runs/{real_run_id}").json()
+    assert run["chat_model_name"] == "recorder-real"
 
 
 def test_scripted_gateway_requires_known_contract() -> None:

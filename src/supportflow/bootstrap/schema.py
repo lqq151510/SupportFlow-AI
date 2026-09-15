@@ -13,6 +13,7 @@ from sqlalchemy import MetaData
 from supportflow.agent.infrastructure import tables as _agent_tables
 from supportflow.identity.infrastructure import tables as _identity_tables
 from supportflow.knowledge.infrastructure import tables as _knowledge_tables
+from supportflow.model.infrastructure import tables as _model_tables
 from supportflow.shared import audit as _audit
 from supportflow.shared import idempotency as _idempotency
 from supportflow.shared.db import Base
@@ -23,6 +24,7 @@ _SIDE_EFFECT_MODULES = (
     _agent_tables,
     _identity_tables,
     _knowledge_tables,
+    _model_tables,
     _audit,
     _idempotency,
     _ticket_tables,
