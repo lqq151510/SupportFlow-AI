@@ -238,6 +238,49 @@ def test_upstream_message_is_captured_from_openai_style_envelope() -> None:
     assert excinfo.value.upstream_message == "Rate limit reached for gpt-4o"
 
 
+def test_rate_limit_429_stays_retryable() -> None:
+    """智谱实测：模型过载返回 429 + code=1305，属**可重试**。"""
+    body = {"error": {"code": "1305", "message": "该模型当前访问量过大，请您稍后再试"}}
+    with respx.mock:
+        respx.post(ENDPOINT).mock(return_value=httpx.Response(429, json=body))
+        with pytest.raises(ModelUnavailable) as excinfo:
+            _gateway().complete(_request())
+
+    assert excinfo.value.upstream_message == "该模型当前访问量过大，请您稍后再试"
+
+
+def test_quota_exhausted_429_is_not_retryable() -> None:
+    """智谱实测：余额不足返回 429 + code=1113。
+
+    同一个状态码承载两种语义 —— 若一律当限流重试，运维只会看到「服务暂时不可用」，
+    看不出真正原因是账户没钱。
+    """
+    body = {"error": {"code": "1113", "message": "余额不足或无可用资源包,请充值。"}}
+    with respx.mock:
+        respx.post(ENDPOINT).mock(return_value=httpx.Response(429, json=body))
+        with pytest.raises(ModelRequestRejected) as excinfo:
+            _gateway().complete(_request())
+
+    assert "额度或余额不足" in (excinfo.value.detail or "")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": {"type": "insufficient_quota", "message": "You exceeded your quota"}},
+        {"error": {"code": "billing_hard_limit_reached", "message": "nope"}},
+        {"error": {"message": "您的账户余额不足，请充值"}},
+        {"error": {"message": "account balance is insufficient"}},
+    ],
+)
+def test_quota_problems_are_recognised_across_envelopes(body: dict[str, object]) -> None:
+    """错误码体系各家不同：智谱用 code，OpenAI 用 type，兜底再看文案。"""
+    with respx.mock:
+        respx.post(ENDPOINT).mock(return_value=httpx.Response(429, json=body))
+        with pytest.raises(ModelRequestRejected):
+            _gateway().complete(_request())
+
+
 def test_unparseable_error_body_leaves_upstream_message_empty() -> None:
     """诊断信息缺失不得影响错误分类。"""
     with respx.mock:

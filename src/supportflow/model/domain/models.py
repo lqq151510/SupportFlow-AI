@@ -83,6 +83,21 @@ class ConnectionTestResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedEmbeddingConfig:
+    """运行期构造 Embedding 网关所需的**解密后**配置。只存在于进程内存中。
+
+    ``embedding_dim`` 是**配置声明的**维度；调用方必须把它与实际返回的向量长度对照，
+    不一致即配置错误（索引版本按维度与模型界定）。
+    """
+
+    base_url: str
+    model_name: str
+    api_key: str
+    timeout_seconds: float
+    embedding_dim: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedChatConfig:
     """运行期构造真实网关所需的**解密后**配置。只存在于进程内存中。"""
 

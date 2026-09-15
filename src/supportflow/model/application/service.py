@@ -24,8 +24,13 @@ from supportflow.model.domain.models import (
     ModelProtocol,
     NewModelConfig,
     ResolvedChatConfig,
+    ResolvedEmbeddingConfig,
 )
 from supportflow.model.domain.ports import ModelConfigRepositoryPort, SecretCipherPort
+from supportflow.model.infrastructure.openai_embedding_gateway import (
+    OpenAICompatibleEmbeddingGateway,
+    probe_embedding,
+)
 from supportflow.model.infrastructure.openai_gateway import (
     OpenAICompatibleChatGateway,
     probe_chat_completion,
@@ -137,25 +142,10 @@ class ModelConfigService:
         existing = self._repository.find_by_id(config_id)
         if existing is None:
             raise NotFound("模型配置不存在")
-        if existing.capability is not ModelCapability.CHAT:
-            raise InvalidRequest("首版连接测试仅支持聊天能力")
-
-        resolved = self.resolve_chat_config(config_id)
-        if resolved is None:  # pragma: no cover - 上面已确认存在
-            raise NotFound("模型配置不存在")
-
-        gateway = OpenAICompatibleChatGateway(
-            base_url=resolved.base_url,
-            api_key=resolved.api_key,
-            model_name=resolved.model_name,
-            timeout_seconds=resolved.timeout_seconds,
-        )
-        started = time.perf_counter()
-        try:
-            ok, detail = probe_chat_completion(gateway, prompt=_PROBE_PROMPT)
-        finally:
-            gateway.close()
-        latency_ms = int((time.perf_counter() - started) * 1000)
+        if existing.capability is ModelCapability.EMBEDDING:
+            ok, detail, latency_ms = self._probe_embedding(existing)
+        else:
+            ok, detail, latency_ms = self._probe_chat(existing)
 
         error_code = None if ok else detail.split(":", 1)[0]
         if not ok:
@@ -168,6 +158,41 @@ class ModelConfigService:
             detail=detail[:400],
         )
 
+    def _probe_chat(self, existing: ModelConfig) -> tuple[bool, str, int]:
+        resolved = self.resolve_chat_config(existing.id)
+        if resolved is None:  # pragma: no cover - 调用前已确认存在
+            raise NotFound("模型配置不存在")
+        with OpenAICompatibleChatGateway(
+            base_url=resolved.base_url,
+            api_key=resolved.api_key,
+            model_name=resolved.model_name,
+            timeout_seconds=resolved.timeout_seconds,
+        ) as gateway:
+            started = time.perf_counter()
+            ok, detail = probe_chat_completion(gateway, prompt=_PROBE_PROMPT)
+            return ok, detail, int((time.perf_counter() - started) * 1000)
+
+    def _probe_embedding(self, existing: ModelConfig) -> tuple[bool, str, int]:
+        """Embedding 连接测试：**同时校验实际维度与声明维度是否一致**。
+
+        维度的差异必须被发现而不是被掩盖 —— 索引版本按「模型 + 维度」界定，
+        声明 1024 而实际 768 会直接建出错误的向量列（AGENTS.md §7）。
+        """
+        resolved = self.resolve_embedding_config(existing.id)
+        if resolved is None:  # pragma: no cover - 调用前已确认存在
+            raise NotFound("模型配置不存在")
+        if resolved.embedding_dim is None:  # pragma: no cover - 创建时已强制要求
+            raise InvalidRequest("Embedding 配置缺少 embedding_dim")
+        with OpenAICompatibleEmbeddingGateway(
+            base_url=resolved.base_url,
+            api_key=resolved.api_key,
+            model_name=resolved.model_name,
+            timeout_seconds=resolved.timeout_seconds,
+        ) as gateway:
+            started = time.perf_counter()
+            ok, detail = probe_embedding(gateway, expected_dim=resolved.embedding_dim)
+            return ok, detail, int((time.perf_counter() - started) * 1000)
+
     # --- 运行期用例（供组合根与 Worker 使用） --------------------------------
 
     def resolve_chat_config(self, config_id: UUID | None = None) -> ResolvedChatConfig | None:
@@ -176,8 +201,27 @@ class ModelConfigService:
         ``config_id`` 省略时取当前启用的聊天配置。返回 ``None`` 表示尚未配置。
         明文只存在于返回对象中，调用方不得记录它。
         """
+        resolved = self._resolve(ModelCapability.CHAT, config_id)
+        if resolved is None:
+            return None
+        config, api_key = resolved
+        return ResolvedChatConfig(
+            base_url=config.base_url,
+            model_name=config.model_name,
+            api_key=api_key,
+            timeout_seconds=self._timeout,
+            max_attempts=self._max_attempts,
+        )
+
+    def _resolve(
+        self, capability: ModelCapability, config_id: UUID | None
+    ) -> tuple[ModelConfig, str] | None:
+        """取「配置 + 解密后的密钥」。两者都不是目标能力时返回 ``None``。
+
+        明文只活在这个方法的返回值里，调用方不得记录它。
+        """
         if config_id is None:
-            enabled = self._repository.find_enabled(ModelCapability.CHAT)
+            enabled = self._repository.find_enabled(capability)
             if enabled is None:
                 return None
             resolved_id = enabled.id
@@ -186,15 +230,31 @@ class ModelConfigService:
 
         config = self._repository.find_by_id(resolved_id)
         ciphertext = self._repository.ciphertext_of(resolved_id)
-        if config is None or not ciphertext:
+        if config is None or not ciphertext or config.capability is not capability:
             return None
-        return ResolvedChatConfig(
+        return config, self._cipher_factory().decrypt(ciphertext)
+
+    def resolve_embedding_config(
+        self, config_id: UUID | None = None
+    ) -> ResolvedEmbeddingConfig | None:
+        """解密并返回运行期所需的 Embedding 配置。``None`` 表示尚未配置。"""
+        resolved = self._resolve(ModelCapability.EMBEDDING, config_id)
+        if resolved is None:
+            return None
+        config, api_key = resolved
+        if config.embedding_dim is None:  # pragma: no cover - 创建时已强制要求
+            return None
+        return ResolvedEmbeddingConfig(
             base_url=config.base_url,
             model_name=config.model_name,
-            api_key=self._cipher_factory().decrypt(ciphertext),
+            api_key=api_key,
             timeout_seconds=self._timeout,
-            max_attempts=self._max_attempts,
+            embedding_dim=config.embedding_dim,
         )
+
+    def embedding_capability_configured(self) -> bool:
+        """Embedding 能力是否已启用配置。"""
+        return self._repository.find_enabled(ModelCapability.EMBEDDING) is not None
 
     def chat_capability_configured(self) -> bool:
         """聊天能力是否已启用配置。用于判定按次指定的 ``real`` 是否可接受。"""

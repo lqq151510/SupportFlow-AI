@@ -346,19 +346,88 @@ def test_connection_test_flags_missing_json_contract(
     assert response.json()["error_code"] == "model_json_contract_unsatisfied"
 
 
-def test_connection_test_rejects_embedding_capability(
-    client: TestClient, demo_users: None, logged_in_admin: str
-) -> None:
-    created = _create(
+EMBEDDING_URL = "https://embed.example.com/v1/embeddings"
+
+
+def _embedding_body(dim: int) -> dict[str, object]:
+    return {
+        "model": "BAAI/bge-m3",
+        "data": [{"index": 0, "embedding": [0.01] * dim}],
+        "usage": {"prompt_tokens": 5},
+    }
+
+
+def _create_embedding_config(client: TestClient, csrf: str, key: str, dim: int) -> dict:
+    response = _create(
         client,
-        logged_in_admin,
-        "model-test-emb-1",
+        csrf,
+        key,
         capability="EMBEDDING",
         model_name="BAAI/bge-m3",
-        embedding_dim=1024,
-    ).json()
-    response = client.post(
-        f"{API}/model-configs/{created['id']}/test",
-        headers={"X-CSRF-Token": logged_in_admin},
+        base_url="https://embed.example.com/v1",
+        embedding_dim=dim,
     )
-    assert response.status_code == 400
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_embedding_connection_test_accepts_matching_dimension(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    created = _create_embedding_config(client, logged_in_admin, "model-test-emb-1", 1024)
+
+    with respx.mock:
+        respx.post(EMBEDDING_URL).mock(
+            return_value=httpx.Response(200, json=_embedding_body(1024))
+        )
+        response = client.post(
+            f"{API}/model-configs/{created['id']}/test",
+            headers={"X-CSRF-Token": logged_in_admin},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ok"] is True
+    assert body["error_code"] is None
+    assert SECRET not in response.text
+
+
+def test_embedding_connection_test_flags_dimension_mismatch(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    """声明 1024 但模型返回 768：必须在配置阶段拦下，否则会建出错误的向量列。"""
+    created = _create_embedding_config(client, logged_in_admin, "model-test-emb-2", 1024)
+
+    with respx.mock:
+        respx.post(EMBEDDING_URL).mock(
+            return_value=httpx.Response(200, json=_embedding_body(768))
+        )
+        response = client.post(
+            f"{API}/model-configs/{created['id']}/test",
+            headers={"X-CSRF-Token": logged_in_admin},
+        )
+
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error_code"] == "embedding_dim_mismatch"
+    assert "1024" in body["detail"] and "768" in body["detail"]
+
+
+def test_embedding_connection_test_reports_quota_problem(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    """智谱实测：embedding 在免费额度下返回 429 + 余额不足。必须如实报告，不得降级为 Mock。"""
+    created = _create_embedding_config(client, logged_in_admin, "model-test-emb-3", 1024)
+    error_body = {"error": {"code": "1113", "message": "余额不足或无可用资源包,请充值。"}}
+
+    with respx.mock:
+        respx.post(EMBEDDING_URL).mock(return_value=httpx.Response(429, json=error_body))
+        response = client.post(
+            f"{API}/model-configs/{created['id']}/test",
+            headers={"X-CSRF-Token": logged_in_admin},
+        )
+
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error_code"] == "model_request_rejected"
+    assert "余额不足" in body["detail"]

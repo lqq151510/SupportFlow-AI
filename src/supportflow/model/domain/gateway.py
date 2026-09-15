@@ -56,3 +56,45 @@ class ChatModelGateway(Protocol):
     def model_name(self) -> str: ...
 
     def complete(self, request: ChatRequest) -> ChatCompletion: ...
+
+
+# --- Embedding ---------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingUsage:
+    prompt_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingResult:
+    """批量向量化结果。
+
+    ``dimension`` 由**实际返回的向量**决定，而不是配置里写的值 —— 两者的差异必须被
+    发现而不是被掩盖，因为索引版本是按维度与模型界定的（AGENTS.md §7）。
+    """
+
+    vectors: Sequence[Sequence[float]]
+    model_name: str
+    mode: ModelMode
+    usage: EmbeddingUsage
+
+    @property
+    def dimension(self) -> int:
+        return len(self.vectors[0]) if self.vectors else 0
+
+
+class EmbeddingModelGateway(Protocol):
+    """Embedding 接入边界。
+
+    与聊天网关分开，因为二者的能力、维度契约与失败语义都不同：聊天可以重试，
+    维度不符则是**配置错误**，重试无意义。
+    """
+
+    @property
+    def mode(self) -> ModelMode: ...
+
+    @property
+    def model_name(self) -> str: ...
+
+    def embed(self, texts: Sequence[str]) -> EmbeddingResult: ...
