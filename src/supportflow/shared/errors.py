@@ -207,10 +207,13 @@ def request_id_of(request: Request) -> str:
 
 
 def build_problem(exc: AppError, request: Request) -> ProblemDetail:
+    # 5xx 的 detail 往往来自上游、驱动或不可信输入。客户端只需要稳定 code 和
+    # request_id 来关联服务端诊断，不能据此获知内部实现细节。
+    detail = exc.detail if exc.status < 500 else None
     return ProblemDetail(
         title=exc.title,
         status=exc.status,
-        detail=exc.detail,
+        detail=detail,
         instance=request.url.path,
         code=exc.code,
         request_id=request_id_of(request),
@@ -219,7 +222,9 @@ def build_problem(exc: AppError, request: Request) -> ProblemDetail:
 
 def problem_response(exc: AppError, request: Request) -> JSONResponse:
     payload = build_problem(exc, request).model_dump(exclude_none=True)
-    payload.update(exc.extra)
+    # 对 5xx 同样不合并额外字段，防止调用方误把上游诊断放入 ``extra`` 后外泄。
+    if exc.status < 500:
+        payload.update(exc.extra)
     return JSONResponse(status_code=exc.status, content=payload, media_type=PROBLEM_MEDIA_TYPE)
 
 
@@ -229,7 +234,12 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         if exc.status >= 500:
-            logger.error("app error", extra={"code": exc.code, "detail": exc.detail})
+            # ``detail`` 可能来自上游或不可信输入。即使当前 formatter 不渲染 extra，
+            # 也不能把它附在 LogRecord 上，以免切换结构化日志后意外泄漏。
+            logger.error(
+                "app error",
+                extra={"code": exc.code, "request_id": request_id_of(request)},
+            )
         return problem_response(exc, request)
 
     @app.exception_handler(RequestValidationError)

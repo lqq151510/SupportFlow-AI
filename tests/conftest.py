@@ -94,7 +94,7 @@ BUSINESS_TABLES = (
 
 
 def _containers_url() -> Iterator[str]:
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 
     with PostgresContainer(PG_IMAGE, driver="psycopg") as container:
         yield container.get_connection_url()

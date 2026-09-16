@@ -54,6 +54,14 @@ def test_build_request_uses_cleaned_body_only() -> None:
     assert "DELIVERY" in request.messages[0].content
 
 
+def test_classification_prompt_preserves_evaluation_boundary_rules() -> None:
+    """防止提示词精简时丢掉 S5 真实评测已验证的易混淆边界。"""
+    prompt = build_request(subject="任意标题", body_cleaned="任意正文").messages[0].content
+
+    for expected in ("补发", "保修、维修", "修改收货地址", "要求上门"):
+        assert expected in prompt
+
+
 def test_parse_classification_reads_structured_output() -> None:
     outcome = parse_classification(
         json.dumps({"category": "ACCOUNT", "confidence": 0.8, "rationale": "提到验证码"})

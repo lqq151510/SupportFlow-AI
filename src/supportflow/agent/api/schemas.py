@@ -50,7 +50,8 @@ class RunListOut(BaseModel):
 
 
 class RunEventOut(BaseModel):
-    id: int
+    #: JSON 主键统一使用字符串；SSE 的 ``id:`` 行仍保留整数游标语义。
+    id: str
     run_id: str
     event_type: str
     payload: dict[str, object]
@@ -59,7 +60,7 @@ class RunEventOut(BaseModel):
     @classmethod
     def of(cls, event: RunEvent) -> RunEventOut:
         return cls(
-            id=event.id,
+            id=str(event.id),
             run_id=str(event.run_id),
             event_type=event.event_type.value,
             payload=event.payload,

@@ -121,7 +121,9 @@ def _resolve_cursor(request: Request, after: int) -> int:
 def _event_frame(event: RunEvent) -> str:
     data = json.dumps(
         {
-            "id": event.id,
+            # 数据帧属于 JSON 契约，主键统一字符串化；SSE 帧头的 ``id:`` 保持
+            # 数字游标，供 Last-Event-ID 续传和数据库范围查询使用。
+            "id": str(event.id),
             "run_id": str(event.run_id),
             "type": event.event_type.value,
             "payload": event.payload,

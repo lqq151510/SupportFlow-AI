@@ -282,7 +282,88 @@ def test_update_without_api_key_keeps_the_ciphertext(
     assert _ciphertext_in_db(created["id"]) == before
 
 
+def test_update_unknown_config_returns_404(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    response = client.patch(
+        f"{API}/model-configs/00000000-0000-0000-0000-000000000000",
+        json={"model_name": "glm-4.7-flash"},
+        headers={"X-CSRF-Token": logged_in_admin},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"model_name": "   "}, "model_name"),
+        ({"base_url": "   "}, "base_url"),
+    ],
+)
+def test_update_rejects_blank_text_fields(
+    client: TestClient,
+    demo_users: None,
+    logged_in_admin: str,
+    payload: dict[str, str],
+    field: str,
+) -> None:
+    created = _create(client, logged_in_admin, f"model-update-blank-{field}").json()
+
+    response = client.patch(
+        f"{API}/model-configs/{created['id']}",
+        json=payload,
+        headers={"X-CSRF-Token": logged_in_admin},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_request"
+
+
+def test_chat_update_rejects_embedding_dimension(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    created = _create(client, logged_in_admin, "model-update-chat-dim").json()
+
+    response = client.patch(
+        f"{API}/model-configs/{created['id']}",
+        json={"embedding_dim": 1024},
+        headers={"X-CSRF-Token": logged_in_admin},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_request"
+
+
+def test_embedding_dimension_update_is_allowed(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    created = _create_embedding_config(client, logged_in_admin, "model-update-emb-dim", 1024)
+
+    response = client.patch(
+        f"{API}/model-configs/{created['id']}",
+        json={"embedding_dim": 768},
+        headers={"X-CSRF-Token": logged_in_admin},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["embedding_dim"] == 768
+
+
 # --- 连接测试 -----------------------------------------------------------------
+
+
+def test_connection_test_unknown_config_returns_404(
+    client: TestClient, demo_users: None, logged_in_admin: str
+) -> None:
+    response = client.post(
+        f"{API}/model-configs/00000000-0000-0000-0000-000000000000/test",
+        headers={"X-CSRF-Token": logged_in_admin},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
 
 
 def test_connection_test_reports_success_without_leaking_the_key(

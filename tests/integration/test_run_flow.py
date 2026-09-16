@@ -262,6 +262,12 @@ def test_sse_stream_replays_events_and_closes_at_terminal_state(
     ids = [event_id for event_id, _, _ in frames if event_id is not None]
     assert ids == sorted(ids)
     assert len(ids) == len(set(ids))
+    # SSE 帧头保留数值游标，JSON 数据帧遵循主键字符串化的 REST 契约。
+    assert all(
+        isinstance(data["id"], str)
+        for event_id, _, data in frames
+        if event_id is not None
+    )
 
     closed = frames[-1][2]
     assert closed["status"] == "COMPLETED"

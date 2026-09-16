@@ -6,14 +6,27 @@
 
 from __future__ import annotations
 
-import pytest
+import json
+import logging
+from datetime import UTC, datetime
+from uuid import uuid4
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from supportflow.agent.api.routes import _event_frame
+from supportflow.agent.api.schemas import RunEventOut
 from supportflow.agent.domain.models import (
     ACTIVE_RUN_STATUSES,
+    RunEvent,
     RunEventType,
     RunStatus,
 )
 from supportflow.shared.errors import (
+    ActionRequestExpired,
+    ActionRequestNotFound,
+    ActionRequestNotPending,
     AppError,
     CsrfValidationFailed,
     Forbidden,
@@ -22,14 +35,18 @@ from supportflow.shared.errors import (
     ModelAuthenticationFailed,
     ModelConfigInvalid,
     ModelModeNotPermitted,
+    ModelModeUnavailable,
     ModelRequestRejected,
     ModelResponseInvalid,
     ModelUnavailable,
     NotFound,
     RunAlreadyActive,
     ServiceUnavailable,
+    TicketAlreadyClosed,
+    TicketVersionChanged,
     Unauthenticated,
     build_problem,
+    install_error_handlers,
 )
 from supportflow.ticket.domain.models import TicketCategory, TicketStatus
 
@@ -42,12 +59,18 @@ EXPECTED_ERRORS: list[tuple[type[AppError], int, str]] = [
     (IdempotencyKeyReused, 409, "idempotency_key_reused"),
     (RunAlreadyActive, 409, "run_already_active"),
     (ModelModeNotPermitted, 403, "model_mode_not_permitted"),
+    (ModelModeUnavailable, 409, "model_mode_unavailable"),
     (ModelUnavailable, 503, "model_unavailable"),
     (ModelResponseInvalid, 502, "model_response_invalid"),
     (ModelAuthenticationFailed, 502, "model_auth_failed"),
     (ModelRequestRejected, 502, "model_request_rejected"),
     (ModelConfigInvalid, 503, "model_config_invalid"),
     (ServiceUnavailable, 503, "service_unavailable"),
+    (ActionRequestNotFound, 404, "action_request_not_found"),
+    (ActionRequestNotPending, 409, "action_request_not_pending"),
+    (ActionRequestExpired, 409, "action_request_expired"),
+    (TicketAlreadyClosed, 409, "ticket_already_closed"),
+    (TicketVersionChanged, 409, "ticket_version_changed"),
 ]
 
 
@@ -100,6 +123,52 @@ def test_upstream_message_never_reaches_the_response_body() -> None:
     assert error.upstream_message == upstream
 
 
+def test_server_error_detail_never_enters_response_or_log_record(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """防止未来切换 JSON formatter 时从 LogRecord.extra 泄漏不可信诊断。"""
+    secret = "should-never-appear-in-a-log"
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.get("/boom")
+    def boom() -> None:
+        raise ModelUnavailable(secret)
+
+    with caplog.at_level(logging.ERROR, logger="supportflow.shared.errors"):
+        response = TestClient(app).get("/boom")
+
+    assert secret not in response.text
+    record = next(record for record in caplog.records if record.message == "app error")
+    assert secret not in record.__dict__.values()
+    assert record.__dict__.get("code") == "model_unavailable"
+    assert record.__dict__.get("request_id")
+
+
+def test_client_error_keeps_safe_detail_and_extra_fields() -> None:
+    """4xx 是调用方可修正的问题，仍应保留业务级诊断与稳定附加字段。"""
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.get("/forbidden")
+    def forbidden() -> None:
+        raise Forbidden("当前账号不能访问该工单", scope="tickets")
+
+    response = TestClient(app).get("/forbidden")
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "type": "about:blank",
+        "title": "无权访问该资源",
+        "status": 403,
+        "detail": "当前账号不能访问该工单",
+        "instance": "/forbidden",
+        "code": "forbidden",
+        "request_id": "-",
+        "scope": "tickets",
+    }
+
+
 def test_extra_does_carry_fields_into_problem_details() -> None:
     """与上一条对照：``extra`` 确实会进响应体，因此敏感信息不得放进去。"""
     error = Forbidden("无权访问", scope="tickets")
@@ -143,6 +212,24 @@ def test_event_type_values_are_namespaced() -> None:
     )
     for event in RunEventType:
         assert event.value.startswith(namespaces), event.value
+
+
+def test_run_event_json_id_is_a_string_while_sse_cursor_stays_numeric() -> None:
+    """JSON 不暴露数值主键；SSE 仍可用数字游标恢复事件流。"""
+    event = RunEvent(
+        id=42,
+        run_id=uuid4(),
+        event_type=RunEventType.RUN_STARTED,
+        payload={},
+        created_at=datetime.now(UTC),
+    )
+
+    assert RunEventOut.of(event).model_dump(mode="json")["id"] == "42"
+
+    frame = _event_frame(event)
+    assert frame.startswith("id: 42\n")
+    data = json.loads(frame.split("data: ", maxsplit=1)[1])
+    assert data["id"] == "42"
 
 
 # --- 工单状态与分类 ---------------------------------------------------------
