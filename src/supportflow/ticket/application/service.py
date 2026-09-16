@@ -19,9 +19,12 @@ from uuid import UUID
 
 from supportflow.identity.domain.models import Principal
 from supportflow.shared.errors import (
+    Forbidden,
     ModelModeNotPermitted,
     ModelModeUnavailable,
     NotFound,
+    TicketAlreadyClosed,
+    TicketVersionChanged,
 )
 from supportflow.shared.idempotency import ReplayedResponse, fingerprint
 from supportflow.ticket.application.ports import FirstRunSchedulerPort, IdempotencyPort
@@ -127,6 +130,56 @@ class TicketService:
         )
 
     # --- 查询 ---------------------------------------------------------------
+    @staticmethod
+    def _require_staff(principal: Principal) -> None:
+        """关闭与转派只允许坐席与管理员 —— 且**必须**经审批闭环调用。"""
+        if not principal.is_staff:
+            raise Forbidden("仅坐席与管理员可以执行该操作")
+
+    def current_version(self, ticket_id: UUID) -> int | None:
+        """取工单当前版本。审批模块据此比对「授权时看到的版本」是否仍然成立。"""
+        ticket = self._tickets.find_by_id(ticket_id)
+        return ticket.version if ticket else None
+
+    def close_ticket(
+        self, principal: Principal, ticket_id: UUID, *, expected_version: int
+    ) -> int:
+        """关闭工单（终态）。仅坐席与管理员可执行，且**必须**通过审批闭环调用。"""
+        self._require_staff(principal)
+        ticket = self._tickets.find_by_id(ticket_id)
+        if ticket is None:
+            raise NotFound("工单不存在")
+        if ticket.status is TicketStatus.CLOSED:
+            raise TicketAlreadyClosed("工单已关闭，不能重复关闭")
+        new_version = self._tickets.close(ticket_id, expected_version=expected_version)
+        if new_version is None:
+            raise TicketVersionChanged(
+                f"工单版本已变化（期望 {expected_version}），请重新发起申请"
+            )
+        return new_version
+
+    def transfer_ticket(
+        self,
+        principal: Principal,
+        ticket_id: UUID,
+        *,
+        assignee_id: UUID,
+        expected_version: int,
+    ) -> int:
+        """转派工单。仅坐席与管理员可执行，且**必须**通过审批闭环调用。"""
+        self._require_staff(principal)
+        ticket = self._tickets.find_by_id(ticket_id)
+        if ticket is None:
+            raise NotFound("工单不存在")
+        new_version = self._tickets.transfer(
+            ticket_id, assignee_id=assignee_id, expected_version=expected_version
+        )
+        if new_version is None:
+            raise TicketVersionChanged(
+                f"工单版本已变化（期望 {expected_version}），请重新发起申请"
+            )
+        return new_version
+
     def list_tickets(
         self,
         principal: Principal,

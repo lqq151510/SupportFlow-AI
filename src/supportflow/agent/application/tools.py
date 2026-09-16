@@ -155,3 +155,96 @@ def validate_arguments(raw: object) -> dict[str, str]:
             raise ModelResponseInvalid(f"工具参数 {key} 必须是字符串")
         arguments[key] = value
     return arguments
+
+# --- 高风险动作提议（PLAN 流程的「可选操作审批」步骤） -------------------------
+
+#: 高风险工具名 → 动作类型。映射必须显式：模型只给工具名，动作类型由服务端决定。
+APPROVAL_TOOL_ACTIONS: dict[str, str] = {
+    "request_close": "CLOSE_TICKET",
+    "request_transfer": "TRANSFER_TICKET",
+}
+
+#: 提议提示词的唯一标记（测试与调用方据此区分请求契约）。
+ACTION_PROPOSAL_MARK = "由人工审批后才会执行"
+
+ACTION_PROPOSAL_SYSTEM_PROMPT = (
+    "你是电商售后工单处理助手。**关闭工单与转派工单属于高风险操作，"
+    "你不能执行，只能提出申请，" + ACTION_PROPOSAL_MARK + "。**\n"
+    f"可选动作：{', '.join(sorted(APPROVAL_TOOL_ACTIONS))}，或 null 表示无需操作。\n"
+    "只输出一个 JSON 对象，字段为：\n"
+    '{"action": <上方动作名之一，或 null>, "reason": "<一句话说明理由>"}\n'
+    "不要输出 Markdown 代码块或任何额外说明。\n"
+    "\n"
+    "判断规则（必须遵守）：\n"
+    "1. 只有明确需要关闭或转派时才提出申请；证据不足或情况不明时返回 null；\n"
+    "2. 客户只是询问、催促或表达不满，**不构成**关闭工单的理由；\n"
+    "3. 申请会被人工审批，因此理由必须具体、可核验。"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ActionProposal:
+    """模型提出的高风险动作申请。
+
+    ``action_type`` 是服务端根据工具名映射出的稳定枚举值，``reason`` 会作为
+    不可变参数写入申请 —— 审批人看到的就是它。
+    """
+
+    action_type: str
+    reason: str
+
+
+def build_action_proposal_request(
+    *,
+    subject: str,
+    body_cleaned: str,
+    category: str,
+    draft_text: str,
+    has_evidence: bool,
+) -> ChatRequest:
+    return ChatRequest(
+        messages=(
+            ChatMessage(role="system", content=ACTION_PROPOSAL_SYSTEM_PROMPT),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"工单标题：{subject}\n"
+                    f"工单正文：\n{body_cleaned}\n"
+                    f"已判定分类：{category}\n"
+                    f"是否已有有效证据：{'是' if has_evidence else '否'}\n"
+                    f"已生成的回复草稿：\n{draft_text}"
+                ),
+            ),
+        ),
+        temperature=0.0,
+        response_format="json",
+    )
+
+
+def parse_action_proposal(text: str) -> ActionProposal | None:
+    """解析提议。返回 ``None`` 表示模型认为无需操作。
+
+    无法解析为约定结构时抛 ``ModelResponseInvalid`` —— 与分类/工具决策保持一致：
+    结构不符属于模型响应问题，不能猜。
+    """
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ModelResponseInvalid("动作提议不是合法 JSON") from exc
+    if not isinstance(payload, dict):
+        raise ModelResponseInvalid("动作提议不是 JSON 对象")
+
+    raw_action = payload.get("action")
+    if raw_action is None:
+        return None
+    if not isinstance(raw_action, str):
+        raise ModelResponseInvalid("动作提议的 action 字段不是字符串")
+    if raw_action not in APPROVAL_TOOL_ACTIONS:
+        # 白名单之外的动作一律拒绝：模型不能引入未登记的高风险动作。
+        raise ModelResponseInvalid(f"未登记的高风险动作：{raw_action}")
+
+    raw_reason = payload.get("reason")
+    reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
+    if not reason:
+        raise ModelResponseInvalid("动作提议缺少具体理由")
+    return ActionProposal(action_type=APPROVAL_TOOL_ACTIONS[raw_action], reason=reason[:400])

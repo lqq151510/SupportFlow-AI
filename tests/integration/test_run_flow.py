@@ -5,7 +5,7 @@
 
 阶段 3 起运行由 LangGraph 状态图驱动，节点固定为
 ``load_ticket → classify_clean → retrieve_knowledge → tool_decision →
-generate_draft → validate_citations → persist_result``，共 7 个步骤。
+generate_draft → validate_citations → persist_result → propose_action``，共 8 个步骤。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ SUBJECT = "快递一直没到"
 BODY = "订单 A-2026-0901 的快递三天没有更新了，请帮我查一下物流"
 
 #: 状态图的正常路径步骤数。检索为空时会提前转人工，步数因此更少。
-HAPPY_PATH_STEPS = 7
+HAPPY_PATH_STEPS = 8
 
 
 def _submit(client: TestClient, csrf: str, key: str) -> dict[str, str]:

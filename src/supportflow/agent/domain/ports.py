@@ -31,6 +31,13 @@ class RunRepositoryPort(Protocol):
         """领取最早的一个待执行运行。使用 ``FOR UPDATE SKIP LOCKED``。"""
         ...
 
+    def park_waiting_approval(self, run_id: UUID) -> None:
+        """把运行停在 ``WAITING_APPROVAL`` 并释放租约。
+
+        **不是终态**：不写 ``finished_at``。审批决定后由审批模块推进终态。
+        """
+        ...
+
     def finish(
         self,
         run_id: UUID,

@@ -55,6 +55,8 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "model_configs",
         "knowledge_chunk_vectors",
         "history_ticket_vectors",
+        "action_requests",
+        "action_ledger",
     }
     with session_scope() as session:
         found = set(
@@ -157,6 +159,52 @@ def test_knowledge_indexes_use_vector_and_gin(migrated: None) -> None:
     assert "USING hnsw" in definitions["ix_knowledge_chunks_embedding_hnsw"]
     assert "USING gin" in definitions["ix_history_tickets_tsv"]
     assert "USING hnsw" in definitions["ix_history_tickets_embedding_hnsw"]
+
+
+def test_action_ledger_pairs_of_unique_constraints_are_idempotency_boundaries(
+    migrated: None,
+) -> None:
+    """PLAN 表 #16 明确：「两个唯一约束即幂等边界」。
+
+    账本的幂等不靠应用层判重，而靠 ``action_request_id`` 与 ``idempotency_key``
+    两个唯一约束。少了任何一个，重复审批或检查点重放就会产生第二笔业务效果。
+    """
+    unique_columns = _scalar(
+        "SELECT string_agg(DISTINCT a.attname, ',' ORDER BY a.attname) "
+        "FROM pg_index i "
+        "JOIN pg_class c ON c.oid = i.indrelid "
+        "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey) "
+        "WHERE c.relname = 'action_ledger' AND i.indisunique "
+        "AND i.indnatts = 1 AND a.attname IN ('action_request_id', 'idempotency_key')"
+    )
+    assert unique_columns == "action_request_id,idempotency_key", unique_columns
+
+
+def test_action_requests_allow_only_one_pending_per_run_and_action(migrated: None) -> None:
+    """同一运行 + 同一动作类型至多一个待审批申请。
+
+    部分唯一索引的谓词必须是 ``status = 'PENDING'``：已处理的申请不该继续占位，
+    否则「先被拒绝、再重新申请」会被数据库挡掉。
+    """
+    definition = _scalar(
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'action_requests' "
+        "AND indexname = 'uq_action_requests_pending_per_run'"
+    )
+    assert isinstance(definition, str)
+    assert "UNIQUE" in definition
+    assert "run_id" in definition and "action_type" in definition
+    # Postgres 会把谓词规范化成 ((status)::text = 'PENDING')，因此只断言两个要素存在。
+    assert "status" in definition and "PENDING" in definition
+
+
+def test_action_requests_has_expiry_scan_index(migrated: None) -> None:
+    """AGENTS.md §7 要求为审批到期扫描建立可解释索引。"""
+    definition = _scalar(
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'action_requests' "
+        "AND indexname = 'ix_action_requests_status_expires'"
+    )
+    assert isinstance(definition, str)
+    assert "status" in definition and "expires_at" in definition
 
 
 def test_versioned_vector_tables_are_dimension_bound(migrated: None) -> None:

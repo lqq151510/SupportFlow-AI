@@ -21,7 +21,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from supportflow.agent.application.tools import MAX_TOOL_CALLS
+from supportflow.agent.application.tools import (
+    ACTION_PROPOSAL_MARK,
+    MAX_TOOL_CALLS,
+)
 from supportflow.agent.application.worker import AgentWorker
 from supportflow.agent.domain.models import RunStatus, RunStepRecord
 from supportflow.agent.infrastructure.repository import (
@@ -59,6 +62,8 @@ HAPPY_PATH_NODES = (
     "generate_draft",
     "validate_citations",
     "persist_result",
+    # PLAN 流程的「可选操作审批」：默认模型认为无需操作，因此不会转 WAITING_APPROVAL。
+    "propose_action",
 )
 
 _CLASSIFY_MARK = "工单分类助手"
@@ -82,15 +87,19 @@ class ScriptedGateway:
         tool_requests: int = 0,
         crash_on_call: int | None = None,
         vary_query: bool = True,
+        proposal: str | None = None,
     ) -> None:
         self.calls = 0
         self.classification_calls = 0
         self.decision_calls = 0
         self.draft_calls = 0
+        self.proposal_calls = 0
         self.tool_requests = tool_requests
         self.crash_on_call = crash_on_call
         #: ``False`` 时每次都用同一组参数，用于验证「原地打转」保护。
         self.vary_query = vary_query
+        #: 非空时提议该高风险动作（如 "request_close"），用于验证审批闭环。
+        self.proposal = proposal
 
     @property
     def mode(self) -> ModelMode:
@@ -120,6 +129,13 @@ class ScriptedGateway:
                 )
             else:
                 body = json.dumps({"tool": None})
+        elif ACTION_PROPOSAL_MARK in system:
+            self.proposal_calls = self.proposal_calls + 1
+            body = (
+                json.dumps({"action": self.proposal, "reason": "客户明确要求关闭"})
+                if self.proposal
+                else json.dumps({"action": None})
+            )
         elif _DRAFT_MARK in system:
             self.draft_calls += 1
             body = "已核实物流异常，将为您补发并同步新的时效。[1]"
@@ -158,6 +174,15 @@ def _execute(run_id: UUID, gateway: ScriptedGateway, *, owner: str = "worker-a")
         run = unit.runs.find_by_id(run_id)
         assert run is not None
         return unit.executor.execute(run, owner=owner)
+
+
+def _ticket_version(ticket_id: UUID) -> int:
+    with session_scope() as session:
+        return int(
+            session.execute(
+                text("SELECT version FROM tickets WHERE id = :t"), {"t": ticket_id}
+            ).scalar_one()
+        )
 
 
 def _event_names(client: TestClient, run_id: str) -> list[str]:
@@ -552,3 +577,117 @@ def test_scripted_gateway_requires_known_contract() -> None:
         gateway.complete(
             ChatRequest(messages=(ChatMessage(role="system", content="未知提示词"),))
         )
+
+
+# --- 高风险提议 → WAITING_APPROVAL（S4 审批闭环的可见行为） --------------------
+
+
+def test_high_risk_proposal_parks_the_run_in_waiting_approval(
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
+) -> None:
+    """模型提议关闭工单 → 创建待审批申请 → 运行停在 WAITING_APPROVAL。
+
+    **不执行动作**：HIGH_RISK 动作必须经人工批准（AGENTS.md §5），
+    因此工单保持 OPEN，也没有任何账本记录。
+    """
+    submitted = _submit(client, logged_in_customer, "approval-flow-1")
+    run_id = UUID(submitted["run_id"])
+    _claim(run_id)
+
+    gateway = ScriptedGateway(proposal="request_close")
+    outcome = _execute(run_id, gateway)
+
+    assert outcome.status is RunStatus.WAITING_APPROVAL
+    assert gateway.proposal_calls == 1
+
+    with session_scope() as session:
+        row = session.execute(
+            text(
+                "SELECT id, action_type, status, parameters_json, ticket_version "
+                "FROM action_requests WHERE run_id = :r"
+            ),
+            {"r": run_id},
+        ).one()
+        ticket_status = session.execute(
+            text("SELECT status FROM tickets WHERE id = :t"),
+            {"t": UUID(submitted["ticket_id"])},
+        ).scalar_one()
+        ledger = session.execute(text("SELECT count(*) FROM action_ledger")).scalar()
+
+    request_id = UUID(str(row[0]))
+    assert row[1] == "CLOSE_TICKET"
+    assert row[2] == "PENDING"
+    assert row[3]["reason"], "申请必须带可核验的理由"
+    # 记录的是**提议时**的工单版本（分类写入已把版本推进到 2）。
+    # 审批执行时以此为乐观锁：版本再变化即拒绝执行。
+    assert row[4] == _ticket_version(UUID(submitted["ticket_id"]))
+    # HIGH_RISK 动作未执行：工单保持 OPEN，账本为空。
+    assert ticket_status == "OPEN"
+    assert ledger == 0
+
+    with session_scope() as session:
+        rows = session.execute(
+            text(
+                "SELECT event_type, payload->>'request_id' AS req "
+                "FROM run_events WHERE run_id = :r ORDER BY id"
+            ),
+            {"r": run_id},
+        ).all()
+    required = [row for row in rows if row[0] == "approval.required"]
+    assert len(required) == 1, f"approval.required 事件数异常: {rows}"
+    assert required[0][1] == str(request_id), f"事件里的申请 ID 不一致: {rows}"
+
+
+def test_replaying_the_run_reuses_the_same_pending_request(
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
+) -> None:
+    """任务重投/检查点重放时，同一运行的同一动作**复用同一条待审批申请**。
+
+    数据库的部分唯一索引是最终保证；这里验证应用层不会另外造一条。
+    """
+    submitted = _submit(client, logged_in_customer, "approval-flow-2")
+    run_id = UUID(submitted["run_id"])
+    _claim(run_id)
+    _execute(run_id, ScriptedGateway(proposal="request_close"))
+
+    # 模拟重投：把运行放回队列再执行一次。
+    with session_scope() as session:
+        session.execute(
+            text("UPDATE agent_runs SET status = 'QUEUED' WHERE id = :i"), {"i": run_id}
+        )
+    _claim(run_id)
+    outcome = _execute(run_id, ScriptedGateway(proposal="request_close"))
+
+    assert outcome.status is RunStatus.WAITING_APPROVAL
+    with session_scope() as session:
+        count = session.execute(
+            text("SELECT count(*) FROM action_requests WHERE run_id = :r"), {"r": run_id}
+        ).scalar()
+    assert count == 1, "重放创建了第二条申请"
+
+
+def test_model_without_proposal_completes_normally(
+    client: TestClient,
+    demo_users: None,
+    indexed_knowledge: None,
+    logged_in_customer: str,
+) -> None:
+    """模型认为无需操作时，运行照常完成 —— 不因新增节点而改变既有行为。"""
+    submitted = _submit(client, logged_in_customer, "approval-flow-3")
+    run_id = UUID(submitted["run_id"])
+    _claim(run_id)
+
+    gateway = ScriptedGateway()
+    outcome = _execute(run_id, gateway)
+
+    assert outcome.status is RunStatus.COMPLETED
+    assert gateway.proposal_calls == 1
+    with session_scope() as session:
+        count = session.execute(text("SELECT count(*) FROM action_requests")).scalar()
+    assert count == 0

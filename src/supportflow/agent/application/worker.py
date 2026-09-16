@@ -41,6 +41,7 @@ class AgentWorker:
         owner: str,
         lease_seconds: int,
         poll_interval_seconds: float,
+        pre_poll: Callable[[], None] | None = None,
         max_iterations: int | None = None,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -50,6 +51,7 @@ class AgentWorker:
         self._poll_interval = poll_interval_seconds
         self._max_iterations = max_iterations
         self._sleep = sleeper
+        self._pre_poll = pre_poll
 
     def run_forever(self) -> None:
         iterations = 0
@@ -60,6 +62,13 @@ class AgentWorker:
 
     def run_once(self) -> bool:
         """领取并执行一个运行。返回 ``True`` 表示本次确实处理了任务。"""
+        if self._pre_poll is not None:
+            # 到期清扫在领取前执行：过期的申请先失效，避免占住待审批队列。
+            # 失败不阻断领取 —— 清扫失败不应让 Worker 停摆。
+            try:
+                self._pre_poll()
+            except Exception:  # pragma: no cover - 防御性日志
+                logger.exception("轮询前置任务失败，跳过本次清扫")
         # 事务 1：领取并立即提交租约。
         with self._open_unit() as unit:
             run = unit.runs.claim_next(

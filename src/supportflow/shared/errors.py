@@ -149,6 +149,47 @@ class ModelConfigInvalid(AppError):
     title = "模型配置不可用"
 
 
+class ActionRequestNotFound(NotFound):
+    code = "action_request_not_found"
+    title = "操作申请不存在"
+
+
+class ActionRequestNotPending(Conflict):
+    """申请已被处理（批准/拒绝/过期）。
+
+    重复审批必须返回稳定错误码而不是静默成功 —— 否则调用方无法区分
+    「我的审批生效了」与「别人已经处理过了」。
+    """
+
+    code = "action_request_not_pending"
+    title = "该操作申请已被处理"
+
+
+class ActionRequestExpired(Conflict):
+    """审批过期不可执行（PLAN §5；AGENTS.md §8 要求有稳定的过期错误码）。"""
+
+    code = "action_request_expired"
+    title = "操作申请已过期"
+
+
+class TicketAlreadyClosed(Conflict):
+    """CLOSED 是终态，不允许再次关闭（AGENTS.md §8：状态迁移非法要有稳定错误码）。"""
+
+    code = "ticket_already_closed"
+    title = "工单已关闭"
+
+
+class TicketVersionChanged(Conflict):
+    """工单在申请之后被改动过，因此不执行该动作。
+
+    保存「工单版本」的意义就在这里：审批针对的是**申请人看到的那一版工单**，
+    版本一变，授权的前提就不成立了。
+    """
+
+    code = "ticket_version_changed"
+    title = "工单已变更，请重新发起申请"
+
+
 class ModelResponseInvalid(AppError):
     status = 502
     code = "model_response_invalid"

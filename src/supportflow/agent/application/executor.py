@@ -33,11 +33,13 @@ from supportflow.agent.application.graph import (
     STATE_FAILED,
     STATE_LEASE_LOST,
     STATE_NEEDS_HUMAN,
+    STATE_WAITING_APPROVAL,
     AgentGraphState,
     GraphDeps,
     build_graph,
 )
 from supportflow.agent.application.ports import (
+    ActionProposalPort,
     KnowledgeRetrievalPort,
     TicketGatewayPort,
 )
@@ -71,6 +73,7 @@ class RunExecutor:
         *,
         gateway_for: GatewayResolver,
         retrieval: KnowledgeRetrievalPort,
+        actions: ActionProposalPort,
         tickets: TicketGatewayPort,
         runs: RunRepositoryPort,
         events: RunEventRepositoryPort,
@@ -84,6 +87,7 @@ class RunExecutor:
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self._gateway_for = gateway_for
+        self._actions = actions
         self._retrieval = retrieval
         self._tickets = tickets
         self._runs = runs
@@ -107,6 +111,7 @@ class RunExecutor:
 
         deps = GraphDeps(
             gateway=gateway,
+            actions=self._actions,
             retrieval=self._retrieval,
             tickets=self._tickets,
             runs=self._runs,
@@ -217,6 +222,16 @@ class RunExecutor:
             self._commit()
             logger.info("运行转人工: run_id=%s reason=%s", run.id, reason)
             return ExecutionOutcome(status=RunStatus.NEEDS_HUMAN, error_code=reason)
+
+        if status == STATE_WAITING_APPROVAL:
+            # 运行停在「等待审批」：**不是终态**，因此只清租约、不写 finished_at。
+            # 审批决定后由审批模块推进终态（批准→执行→COMPLETED，拒绝→NEEDS_HUMAN）。
+            self._runs.park_waiting_approval(run.id)
+            self._commit()
+            logger.info(
+                "运行等待审批: run_id=%s request=%s", run.id, state.get("action_request_id")
+            )
+            return ExecutionOutcome(status=RunStatus.WAITING_APPROVAL)
 
         code = str(state.get("error_code") or "execution_failed")
         self._runs.finish(run.id, status=RunStatus.FAILED, error_code=code)

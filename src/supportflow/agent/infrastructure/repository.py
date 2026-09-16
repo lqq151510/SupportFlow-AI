@@ -114,6 +114,18 @@ class SqlAlchemyRunRepository:
         self._mark_running(row, owner=owner, lease_seconds=lease_seconds)
         return _to_run(row)
 
+    def park_waiting_approval(self, run_id: UUID) -> None:
+        """停在 WAITING_APPROVAL 并释放租约（非终态，不写 finished_at）。"""
+        self._session.execute(
+            update(AgentRunRow)
+            .where(AgentRunRow.id == run_id)
+            .values(
+                status=RunStatus.WAITING_APPROVAL.value,
+                lease_owner=None,
+                lease_expires_at=None,
+            )
+        )
+
     def finish(
         self,
         run_id: UUID,

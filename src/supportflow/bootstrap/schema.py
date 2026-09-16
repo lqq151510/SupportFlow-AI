@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import MetaData
 
 from supportflow.agent.infrastructure import tables as _agent_tables
+from supportflow.approval.infrastructure import tables as _approval_tables
 from supportflow.identity.infrastructure import tables as _identity_tables
 from supportflow.knowledge.infrastructure import tables as _knowledge_tables
 from supportflow.model.infrastructure import tables as _model_tables
@@ -22,6 +23,7 @@ from supportflow.ticket.infrastructure import tables as _ticket_tables
 # 显式引用一次，表明这些模块是「为副作用而导入」，不是僵尸导入。
 _SIDE_EFFECT_MODULES = (
     _agent_tables,
+    _approval_tables,
     _identity_tables,
     _knowledge_tables,
     _model_tables,

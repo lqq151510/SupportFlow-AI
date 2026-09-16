@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from supportflow.shared.clock import utcnow
@@ -85,6 +85,50 @@ class SqlAlchemyTicketRepository:
         if row is None:
             return
         row.category = category.value
+
+    def close(self, ticket_id: UUID, *, expected_version: int) -> int | None:
+        """条件更新：``WHERE version = :expected AND status = 'OPEN'``。
+
+        返回新版本；受影响行数为 0 表示版本不符（或工单已关闭），由用例层区分。
+        """
+        return self._apply_action(
+            ticket_id,
+            expected_version=expected_version,
+            values={"status": TicketStatus.CLOSED.value},
+            require_open=True,
+        )
+
+    def transfer(
+        self, ticket_id: UUID, *, assignee_id: UUID, expected_version: int
+    ) -> int | None:
+        return self._apply_action(
+            ticket_id,
+            expected_version=expected_version,
+            values={"assignee_id": assignee_id},
+            require_open=False,
+        )
+
+    def _apply_action(
+        self,
+        ticket_id: UUID,
+        *,
+        expected_version: int,
+        values: dict[str, object],
+        require_open: bool,
+    ) -> int | None:
+        conditions = [
+            TicketRow.id == ticket_id,
+            TicketRow.version == expected_version,
+        ]
+        if require_open:
+            conditions.append(TicketRow.status == TicketStatus.OPEN.value)
+        row = self._session.execute(
+            update(TicketRow)
+            .where(*conditions)
+            .values(version=TicketRow.version + 1, updated_at=utcnow(), **values)
+            .returning(TicketRow.version)
+        ).one_or_none()
+        return int(row[0]) if row is not None else None
 
     @staticmethod
     def _apply_filters(

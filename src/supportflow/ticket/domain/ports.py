@@ -31,3 +31,17 @@ class TicketRepositoryPort(Protocol):
     ) -> int: ...
 
     def assign_category(self, ticket_id: UUID, category: TicketCategory) -> None: ...
+
+    def close(self, ticket_id: UUID, *, expected_version: int) -> int | None:
+        """按乐观锁关闭工单，返回新版本；版本不符返回 ``None``。
+
+        条件更新（``WHERE version = :expected AND status = 'OPEN'``）是**唯一**的并发保证，
+        不能用「先读后写」替代。
+        """
+        ...
+
+    def transfer(
+        self, ticket_id: UUID, *, assignee_id: UUID, expected_version: int
+    ) -> int | None:
+        """按乐观锁转派工单，返回新版本；版本不符返回 ``None``。"""
+        ...

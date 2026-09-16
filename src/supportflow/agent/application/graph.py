@@ -39,6 +39,7 @@ from supportflow.agent.application.drafting import (
     validate_citations as check_citations,
 )
 from supportflow.agent.application.ports import (
+    ActionProposalPort,
     KnowledgeRetrievalPort,
     TicketGatewayPort,
 )
@@ -46,7 +47,9 @@ from supportflow.agent.application.retry import with_retries
 from supportflow.agent.application.tools import (
     MAX_TOOL_CALLS,
     ToolDecision,
+    build_action_proposal_request,
     build_tool_decision_request,
+    parse_action_proposal,
     parse_tool_decision,
 )
 from supportflow.agent.domain.models import (
@@ -61,6 +64,7 @@ from supportflow.agent.domain.ports import (
 )
 from supportflow.model.domain.gateway import ChatModelGateway
 from supportflow.shared.errors import (
+    ActionRequestNotPending,
     ModelResponseInvalid,
     ModelUnavailable,
 )
@@ -76,6 +80,7 @@ NODE_GENERATE = "generate_draft"
 NODE_VALIDATE = "validate_citations"
 NODE_PERSIST = "persist_result"
 NODE_NEEDS_HUMAN = "needs_human"
+NODE_PROPOSE = "propose_action"
 
 #: 状态机内部的终态标记，落到 ``agent_runs.status`` 时映射为 RunStatus。
 STATE_RUNNING = "RUNNING"
@@ -83,6 +88,7 @@ STATE_COMPLETED = "COMPLETED"
 STATE_NEEDS_HUMAN = "NEEDS_HUMAN"
 STATE_FAILED = "FAILED"
 STATE_LEASE_LOST = "LEASE_LOST"
+STATE_WAITING_APPROVAL = "WAITING_APPROVAL"
 
 LEASE_LOST = "lease_lost"
 
@@ -112,6 +118,9 @@ class AgentGraphState(TypedDict, total=False):
     draft_text: str
     citations: list[dict[str, Any]]
 
+    action_request_id: str
+    action_expires_at: str
+
     next_step_no: int
     status: str
     handoff_reason: str
@@ -134,6 +143,7 @@ class GraphDeps:
     runs: RunRepositoryPort
     events: RunEventRepositoryPort
     steps: RunStepRepositoryPort
+    actions: ActionProposalPort
     commit: Callable[[], None]
     max_attempts: int
     base_delay_seconds: float = 0.0
@@ -494,6 +504,87 @@ def persist_result(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]
     }
 
 
+def propose_action(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
+    """PLAN 流程的「可选操作审批」步骤：让模型提议高风险动作。
+
+    **这一步只产生申请，不执行** —— 关闭与转派必须经人工批准（AGENTS.md §5）。
+    实现侧负责参数不可变、工单版本校验与按 ``(run_id, action_type)`` 幂等复用。
+    """
+    scope = _begin_step(deps, state, NODE_PROPOSE)
+    draft_text = str(state.get("draft_text", ""))
+    try:
+        completion = with_retries(
+            lambda: deps.gateway.complete(
+                build_action_proposal_request(
+                    subject=state["subject"],
+                    body_cleaned=state["body_cleaned"],
+                    category=state.get("category", ""),
+                    draft_text=draft_text,
+                    has_evidence=bool(state.get("evidence")),
+                )
+            ),
+            attempts=deps.max_attempts,
+            base_delay_seconds=deps.base_delay_seconds,
+            retry_on=(ModelUnavailable,),
+            sleeper=deps.sleeper,
+            label="propose_action",
+        )
+    except ModelUnavailable as exc:
+        return {
+            **_end_step(deps, state, scope, "model_unavailable"),
+            **_handoff("model_unavailable", str(exc)),
+        }
+
+    proposal = parse_action_proposal(completion.text)
+    if proposal is None:
+        # **刻意不写 status**：此时 persist_result 已把状态置为 COMPLETED，
+        # 覆写回 RUNNING 会让运行落进兜底 FAILED（实测踩过）。
+        return {
+            **_end_step(deps, state, scope, "no_action_needed"),
+            "action_request_id": None,
+            "action_expires_at": None,
+        }
+
+    try:
+        outcome = deps.actions.propose(
+            ticket_id=UUID(state["ticket_id"]),
+            run_id=UUID(state["run_id"]),
+            action_type=proposal.action_type,
+            reason=proposal.reason,
+        )
+    except ActionRequestNotPending as exc:
+        # 同一运行 + 同一动作类型已有**已处理**的申请：说明这条运行已经走过审批
+        # 并被拒绝/过期。此时不能重复申请，也不能继续 —— 转人工由人决定下一步。
+        return {
+            **_end_step(deps, state, scope, "action_already_decided"),
+            **_handoff("action_already_decided", str(exc)),
+        }
+
+    deps.events.append(
+        UUID(state["run_id"]),
+        RunEventType.APPROVAL_REQUIRED,
+        {
+            "request_id": str(outcome.request_id),
+            "action_type": outcome.action_type,
+            "reason": proposal.reason,
+            "expires_at": outcome.expires_at,
+            "replayed": outcome.replayed,
+        },
+    )
+    return {
+        **_end_step(
+            deps,
+            state,
+            scope,
+            f"action={outcome.action_type} replayed={outcome.replayed}",
+        ),
+        "action_request_id": str(outcome.request_id),
+        "action_expires_at": outcome.expires_at,
+        # 让运行停在 WAITING_APPROVAL：审批决定后由审批模块推进终态。
+        "status": STATE_WAITING_APPROVAL,
+    }
+
+
 def needs_human(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
     scope = _begin_step(deps, state, NODE_NEEDS_HUMAN)
     reason = state.get("handoff_reason", "unknown")
@@ -540,6 +631,7 @@ def build_graph(deps: GraphDeps) -> StateGraph[AgentGraphState]:
     graph.add_node(NODE_GENERATE, lambda state: generate_draft(deps, state))
     graph.add_node(NODE_VALIDATE, lambda state: validate_citations(deps, state))
     graph.add_node(NODE_PERSIST, lambda state: persist_result(deps, state))
+    graph.add_node(NODE_PROPOSE, lambda state: propose_action(deps, state))
     graph.add_node(NODE_NEEDS_HUMAN, lambda state: needs_human(deps, state))
 
     graph.add_edge(START, NODE_LOAD)
@@ -567,6 +659,7 @@ def build_graph(deps: GraphDeps) -> StateGraph[AgentGraphState]:
         _after_validate,
         {NODE_PERSIST: NODE_PERSIST, NODE_NEEDS_HUMAN: NODE_NEEDS_HUMAN, END: END},
     )
-    graph.add_edge(NODE_PERSIST, END)
+    graph.add_edge(NODE_PERSIST, NODE_PROPOSE)
+    graph.add_edge(NODE_PROPOSE, END)
     graph.add_edge(NODE_NEEDS_HUMAN, END)
     return graph

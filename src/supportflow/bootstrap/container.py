@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from supportflow.agent.application.executor import RunExecutor
 from supportflow.agent.application.ports import (
+    ActionProposalOutcome,
     Evidence,
     KnowledgeRetrievalPort,
     TicketFacts,
@@ -26,7 +27,8 @@ from supportflow.agent.application.ports import (
 from supportflow.agent.application.scheduler import FirstRunScheduler
 from supportflow.agent.application.service import RunService
 from supportflow.agent.application.worker import RunExecutionUnit
-from supportflow.agent.domain.models import RunEvent, RunStatus
+from supportflow.agent.domain.models import RunEvent, RunEventType, RunStatus
+from supportflow.agent.domain.models import RunStatus as RunStatusEnum
 from supportflow.agent.infrastructure.checkpoints import (
     checkpoint_config,
     postgres_checkpointer,
@@ -37,8 +39,14 @@ from supportflow.agent.infrastructure.repository import (
     SqlAlchemyRunRepository,
     SqlAlchemyRunStepRepository,
 )
+from supportflow.approval.application.service import ActionApprovalService
+from supportflow.approval.infrastructure.repository import (
+    SqlAlchemyActionLedgerRepository,
+    SqlAlchemyActionRequestRepository,
+)
 from supportflow.bootstrap.embedding_provider import ConfiguredEmbeddingProvider
 from supportflow.identity.application.service import AuthService
+from supportflow.identity.domain.models import Principal
 from supportflow.identity.infrastructure.repository import (
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
@@ -76,6 +84,7 @@ class Services:
     tickets: TicketService
     knowledge: KnowledgeService
     model_configs: ModelConfigService
+    approvals: ActionApprovalService
     runs: RunService
     audit: AuditRecorder
 
@@ -86,7 +95,6 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
 
     users = SqlAlchemyUserRepository(session)
     user_sessions = SqlAlchemySessionRepository(session)
-    tickets_repo = SqlAlchemyTicketRepository(session)
     knowledge_repo = SqlAlchemyKnowledgeRepository(session)
     model_configs = build_model_config_service(session, cfg)
     runs_repo = SqlAlchemyRunRepository(session)
@@ -103,13 +111,8 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
     available_modes = available_model_modes(
         chat_configured=model_configs.chat_capability_configured()
     )
-    tickets = TicketService(
-        tickets_repo,
-        IdempotencyStore(session),
-        FirstRunScheduler(runs_repo),
-        default_model_mode=cfg.model_mode,
-        available_model_modes=available_modes,
-    )
+    tickets = build_ticket_service(session, cfg)
+    approvals = build_approval_service(session, tickets)
     runs = RunService(
         runs_repo,
         events_repo,
@@ -132,6 +135,7 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
         tickets=tickets,
         knowledge=knowledge,
         model_configs=model_configs,
+        approvals=approvals,
         runs=runs,
         audit=AuditRecorder(session),
     )
@@ -148,6 +152,125 @@ def build_model_config_service(session: Session, settings: Settings) -> ModelCon
         lambda: cipher_from_settings(settings),
         request_timeout_seconds=settings.model_request_timeout_seconds,
         max_attempts=settings.model_max_attempts,
+    )
+
+
+class TicketActionAdapter:
+    """把 ticket 模块的用例适配成审批模块的 ``TicketActionPort``。
+
+    **适配器放组合根**：审批模块因此不需要认识 ticket 模块（AGENTS.md §3）。
+    授权仍在工单模块内完成 —— 这里只做转发，不做放行判断。
+    """
+
+    def __init__(self, tickets: TicketService) -> None:
+        self._tickets = tickets
+
+    def current_version(self, ticket_id: UUID) -> int | None:
+        return self._tickets.current_version(ticket_id)
+
+    def close_ticket(self, principal: Principal, *, ticket_id: UUID, expected_version: int) -> int:
+        return self._tickets.close_ticket(principal, ticket_id, expected_version=expected_version)
+
+    def transfer_ticket(
+        self,
+        principal: Principal,
+        *,
+        ticket_id: UUID,
+        assignee_id: UUID,
+        expected_version: int,
+    ) -> int:
+        return self._tickets.transfer_ticket(
+            principal, ticket_id, assignee_id=assignee_id, expected_version=expected_version
+        )
+
+
+def build_ticket_service(session: Session, cfg: Settings) -> TicketService:
+    """工单用例。模型配置决定「按次指定 real」是否被接受。"""
+    model_configs = build_model_config_service(session, cfg)
+    return TicketService(
+        SqlAlchemyTicketRepository(session),
+        IdempotencyStore(session),
+        FirstRunScheduler(SqlAlchemyRunRepository(session)),
+        default_model_mode=cfg.model_mode,
+        available_model_modes=available_model_modes(
+            chat_configured=model_configs.chat_capability_configured()
+        ),
+    )
+
+
+class ApprovalProposalAdapter:
+    """把审批用例适配成图里的 ``ActionProposalPort``。
+
+    图只表达意图（动作 + 理由），参数不可变、工单版本校验与幂等复用都在审批模块。
+    """
+
+    def __init__(self, approvals: ActionApprovalService) -> None:
+        self._approvals = approvals
+
+    def propose(
+        self, *, ticket_id: UUID, run_id: UUID, action_type: str, reason: str
+    ) -> ActionProposalOutcome:
+        """把审批模块的返回映射成 agent 域的结果类型。
+
+        刻意在这里做映射而不是让审批模块返回 agent 的类型：那样会出现
+        approval → agent 的反向依赖。
+        """
+        outcome = self._approvals.propose_by_system(
+            ticket_id=ticket_id, run_id=run_id, action_type=action_type, reason=reason
+        )
+        return ActionProposalOutcome(
+            request_id=UUID(str(outcome["request_id"])),
+            action_type=str(outcome["action_type"]),
+            expires_at=str(outcome["expires_at"]),
+            replayed=bool(outcome["replayed"]),
+        )
+
+
+class RunOutcomeAdapter:
+    """把审批结果推进到运行的终态。
+
+    **幂等由状态判断保证**：只有运行仍处于 ``WAITING_APPROVAL`` 才迁移，
+    因此重复决策、任务重投或检查点重放都不会产生第二笔效果。
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._runs = SqlAlchemyRunRepository(session)
+        self._events = SqlAlchemyRunEventRepository(session)
+
+    def complete_after_action(
+        self, run_id: UUID, *, request_id: UUID, action_type: str
+    ) -> None:
+        if not self._is_waiting(run_id):
+            return
+        self._runs.finish(run_id, status=RunStatusEnum.COMPLETED)
+        self._events.append(
+            run_id,
+            RunEventType.RUN_COMPLETED,
+            {"via": "approval", "request_id": str(request_id), "action_type": action_type},
+        )
+
+    def hand_back(self, run_id: UUID, *, request_id: UUID, reason: str) -> None:
+        if not self._is_waiting(run_id):
+            return
+        self._runs.finish(run_id, status=RunStatusEnum.NEEDS_HUMAN, error_code=reason)
+        self._events.append(
+            run_id,
+            RunEventType.RUN_NEEDS_HUMAN,
+            {"reason": reason, "request_id": str(request_id)},
+        )
+
+    def _is_waiting(self, run_id: UUID) -> bool:
+        run = self._runs.find_by_id(run_id)
+        return run is not None and run.status is RunStatusEnum.WAITING_APPROVAL
+
+
+def build_approval_service(session: Session, tickets: TicketService) -> ActionApprovalService:
+    """审批用例。工单能力通过适配器注入，且只暴露三个方法。"""
+    return ActionApprovalService(
+        SqlAlchemyActionRequestRepository(session),
+        SqlAlchemyActionLedgerRepository(session),
+        TicketActionAdapter(tickets),
+        RunOutcomeAdapter(session),
     )
 
 
@@ -257,6 +380,8 @@ def build_execution_unit(
     cfg = settings or get_settings()
     runs_repo = SqlAlchemyRunRepository(session)
     model_configs = build_model_config_service(session, cfg)
+    tickets = build_ticket_service(session, cfg)
+    approvals = build_approval_service(session, tickets)
     knowledge = KnowledgeService(
         SqlAlchemyKnowledgeRepository(session),
         IdempotencyStore(session),
@@ -272,6 +397,7 @@ def build_execution_unit(
     executor = RunExecutor(
         gateway_for=gateway_for,
         retrieval=retrieval or RetrievalAdapter(knowledge),
+        actions=ApprovalProposalAdapter(approvals),
         tickets=TicketFactsAdapter(SqlAlchemyTicketRepository(session)),
         runs=runs_repo,
         events=SqlAlchemyRunEventRepository(session),

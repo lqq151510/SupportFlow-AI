@@ -40,6 +40,32 @@ class TicketFacts:
     status: str
 
 
+@dataclass(frozen=True, slots=True)
+class ActionProposalOutcome:
+    """高风险动作申请的结果。
+
+    ``replayed`` 表示本次运行此前已经提交过同一申请（任务重投/检查点重放），
+    返回的是**同一条**待审批申请。
+    """
+
+    request_id: UUID
+    action_type: str
+    expires_at: str
+    replayed: bool
+
+
+class ActionProposalPort(Protocol):
+    """把高风险动作申请交给审批模块。
+
+    实现（组合根）负责：把「动作 + 理由」变成不可变参数、校验**工单版本**、
+    以及按 ``(run_id, action_type)`` 做幂等复用。图里只表达意图，不接触数据库。
+    """
+
+    def propose(
+        self, *, ticket_id: UUID, run_id: UUID, action_type: str, reason: str
+    ) -> ActionProposalOutcome: ...
+
+
 class TicketGatewayPort(Protocol):
     def facts(self, ticket_id: UUID) -> TicketFacts | None:
         """返回工单事实；不存在时返回 ``None``。"""
