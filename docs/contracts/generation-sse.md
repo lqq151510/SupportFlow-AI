@@ -1,3 +1,6 @@
+> ⚠️ **已退役 · 旧 Java 架构证据**：本文描述的架构已被 Python 全栈重构替代（ADR-0008，`codex/supportflow-agent-python`）。
+> 内容仅作历史证据保留，不代表当前系统；现行基线以仓库根目录的 `PLAN.md` 与 `AGENTS.md` 为准。
+
 # 生成 SSE 契约（v1）
 
 端点：`GET /api/v1/customer/generations/{generationId}/events`，认证为消费者 Bearer Token。服务端只允许读取认证用户所属租户且本人创建的生成任务。

@@ -1,3 +1,6 @@
+> ⚠️ **已退役 · 旧 Java 架构证据**：本文描述的架构已被 Python 全栈重构替代（ADR-0008，`codex/supportflow-agent-python`）。
+> 内容仅作历史证据保留，不代表当前系统；现行基线以仓库根目录的 `PLAN.md` 与 `AGENTS.md` 为准。
+
 # RocketMQ 事件契约（v1）
 
 主题：`support-domain-events`。每条 Outbox 事件使用如下信封；`eventId` 为 Outbox 主键，消费者的幂等键是 `consumerName + eventId`。

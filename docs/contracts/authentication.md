@@ -1,3 +1,6 @@
+> ⚠️ **已退役 · 旧 Java 架构证据**：本文描述的架构已被 Python 全栈重构替代（ADR-0008，`codex/supportflow-agent-python`）。
+> 内容仅作历史证据保留，不代表当前系统；现行基线以仓库根目录的 `PLAN.md` 与 `AGENTS.md` 为准。
+
 # 身份接口契约（v1）
 
 成功响应直接返回业务 JSON；失败响应使用 RFC 9457 `ProblemDetail` 并包含 `code`、`requestId`。

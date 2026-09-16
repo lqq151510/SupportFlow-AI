@@ -1,3 +1,5 @@
+# ⚠️ 已退役 · 旧 Java 架构证据：本契约已被 Python 版 OpenAPI 契约替代（docs/contracts/openapi.json）。
+# 内容仅作历史证据保留，不代表当前系统；现行基线以仓库根目录的 PLAN.md 与 AGENTS.md 为准。
 openapi: 3.1.0
 info:
   title: SupportFlow AI API

@@ -1,3 +1,6 @@
+> ⚠️ **已退役 · 旧 Java 架构证据**：本文描述的架构已被 Python 全栈重构替代（ADR-0008，`codex/supportflow-agent-python`）。
+> 内容仅作历史证据保留，不代表当前系统；现行基线以仓库根目录的 `PLAN.md` 与 `AGENTS.md` 为准。
+
 # SupportFlow AI ER 图
 
 下图描述当前演示闭环的主要持久化实体。所有业务表均以 `tenant_id` 作为隔离键；身份基础表不使用该列，成员关系承担租户归属。
