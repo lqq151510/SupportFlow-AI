@@ -128,6 +128,7 @@ class SqlAlchemyEvaluationRunRepository:
         category_correct: bool | None,
         recall_at_5: bool | None,
         detail: dict[str, object],
+        handoff_correct: bool | None = None,
     ) -> None:
         self._session.add(
             EvaluationResultRow(
@@ -135,6 +136,7 @@ class SqlAlchemyEvaluationRunRepository:
                 case_id=case_id,
                 category_correct=category_correct,
                 recall_at_5=recall_at_5,
+                handoff_correct=handoff_correct,
                 detail_json=detail,
             )
         )
@@ -181,6 +183,7 @@ class SqlAlchemyEvaluationRunRepository:
                 "expect_handoff": bool(case.expect_handoff),
                 "category_correct": result.category_correct,
                 "recall_at_5": result.recall_at_5,
+                "handoff_correct": result.handoff_correct,
                 "detail": dict(result.detail_json or {}),
             }
             for result, case in rows

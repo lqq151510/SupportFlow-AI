@@ -332,6 +332,16 @@ class EvaluationClassifyAdapter:
         return parsed.category.value, parsed.confidence
 
 
+class EvaluationSecurityGuardAdapter:
+    """安全闸预筛复用 agent 模块的确定性规则（经组合根适配，依赖保持单向）。"""
+
+    def inspect(self, *, subject: str, body: str) -> str | None:
+        from supportflow.agent.application.security_guard import inspect_security
+
+        finding = inspect_security(subject, body)
+        return finding.rule if finding else None
+
+
 class EvaluationRetrieveAdapter:
     """运行内部检索 + 把证据的来源 ID 解析成**文档标题**（与冻结集对齐）。"""
 
@@ -378,6 +388,7 @@ def build_evaluation_service(session: Session, cfg: Settings) -> EvaluationServi
         EvaluationCorpusAdapter(knowledge),
         EvaluationClassifyAdapter(build_gateway_resolver_for(cfg, model_configs)),
         EvaluationRetrieveAdapter(session, knowledge),
+        EvaluationSecurityGuardAdapter(),
         index_version_provider=lambda: embedding_provider.active_index_version().name,
     )
 

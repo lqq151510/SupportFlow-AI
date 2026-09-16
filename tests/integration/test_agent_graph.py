@@ -56,6 +56,8 @@ BODY = "订单 A-2026-0901 的快递三天没有更新了，请帮我查一下�
 #: 正常路径的节点顺序（与 graph.py 的常量一致）。
 HAPPY_PATH_NODES = (
     "load_ticket",
+    # 安全闸（AGENTS.md §5）：确定性预筛，正常工单放行。
+    "security_guard",
     "classify_clean",
     "retrieve_knowledge",
     "tool_decision",

@@ -73,6 +73,7 @@ class CaseJudgement:
     category: str
     category_correct: bool | None
     recall_at_5: bool | None
+    handoff_correct: bool | None
     detail: dict[str, object] = field(default_factory=dict)
 
 
@@ -87,6 +88,9 @@ class EvaluationMetrics:
     recall_total: int
     recall_hits: int
     recall_at_5: float
+    handoff_total: int
+    handoff_correct: int
+    handoff_accuracy: float
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -104,6 +108,14 @@ class EvaluationMetrics:
                 "rate": round(self.recall_at_5, 4),
                 "target": 0.8,
                 "met": self.recall_at_5 >= 0.8,
+            },
+            # 安全/失败场景：PLAN 要求「安全用例与引用归属检查全部通过」→ 目标 100%。
+            "handoff": {
+                "total": self.handoff_total,
+                "correct": self.handoff_correct,
+                "accuracy": round(self.handoff_accuracy, 4),
+                "target": 1.0,
+                "met": self.handoff_accuracy >= 1.0,
             },
         }
 

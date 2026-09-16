@@ -1,12 +1,11 @@
 """评测用例编排：导入冻结集、执行评测并聚合指标。
 
-两段式指标（PLAN 验收目标：分类准确率 ≥90%、Recall@5 ≥80%）：
+两段式指标（PLAN 验收目标：分类准确率 ≥90%、Recall@5 ≥80%、安全转人工 100%）：
 
 - ``category_correct``：分类是否与期望一致；
-- ``recall_at_5``：期望来源是否出现在 Top-5 检索证据里。
-
-安全/失败场景考核的是「是否转人工」，需要完整运行（生成草稿 + 引用校验），
-本段先记 ``None``（不适用），由后续的完整运行评测补齐 —— **缺测不等于失败**。
+- ``recall_at_5``：期望来源是否出现在 Top-5 检索证据里；
+- ``handoff_correct``：安全闸的处置是否与期望一致（安全场景应被拦截，
+  正常场景不应被误拦）。守卫是确定性规则，与模式（mock/real）无关。
 """
 
 from __future__ import annotations
@@ -29,6 +28,7 @@ from supportflow.evaluation.domain.ports import (
     EvaluationCaseRepositoryPort,
     EvaluationRunRepositoryPort,
     RetrievePort,
+    SecurityGuardPort,
 )
 from supportflow.identity.domain.models import Principal
 from supportflow.shared.errors import Forbidden
@@ -44,6 +44,7 @@ class EvaluationService:
         corpus: CorpusSeedPort,
         classify: ClassifyPort,
         retrieve: RetrievePort,
+        guard: SecurityGuardPort,
         *,
         index_version_provider: Callable[[], str],
     ) -> None:
@@ -52,6 +53,7 @@ class EvaluationService:
         self._corpus = corpus
         self._classify = classify
         self._retrieve = retrieve
+        self._guard = guard
         self._index_version = index_version_provider
 
     # --- 导入 ---------------------------------------------------------------
@@ -142,17 +144,25 @@ class EvaluationService:
             top5 = evidence_titles[:5]
             recall_at_5 = any(expected in top5 for expected in case.expected_source_ids)
 
+        # 安全闸考核：守卫是确定性规则，对所有用例都判 —— 正常用例被误拦同样算失败。
+        handoff_rule = self._guard.inspect(subject=case.subject, body=case.question)
+        handoff_triggered = handoff_rule is not None
+        handoff_correct = handoff_triggered == case.expect_handoff
+
         self._runs.record(
             run_id,
             case.id,
             category_correct=category_correct,
             recall_at_5=recall_at_5,
+            handoff_correct=handoff_correct,
             detail={
                 "classified_category": classified,
                 "expected_category": expected_category,
                 "expected_source_ids": case.expected_source_ids,
                 "evidence_titles": evidence_titles,
                 "expect_handoff": case.expect_handoff,
+                "handoff_triggered": handoff_triggered,
+                "handoff_rule": handoff_rule,
             },
         )
         return CaseJudgement(
@@ -161,10 +171,12 @@ class EvaluationService:
             category=case.category,
             category_correct=category_correct,
             recall_at_5=recall_at_5,
+            handoff_correct=handoff_correct,
             detail={
                 "classified": classified,
                 "expected": expected_category,
                 "recall": recall_at_5,
+                "handoff_rule": handoff_rule,
             },
         )
 
@@ -174,8 +186,12 @@ class EvaluationService:
             j.category_correct for j in judgements if j.category_correct is not None
         ]
         recall_results = [j.recall_at_5 for j in judgements if j.recall_at_5 is not None]
+        handoff_results = [
+            j.handoff_correct for j in judgements if j.handoff_correct is not None
+        ]
         category_correct = sum(1 for v in category_results if v)
         recall_hits = sum(1 for v in recall_results if v)
+        handoff_hits = sum(1 for v in handoff_results if v)
         return EvaluationMetrics(
             total_cases=total,
             category_total=len(category_results),
@@ -186,6 +202,11 @@ class EvaluationService:
             recall_total=len(recall_results),
             recall_hits=recall_hits,
             recall_at_5=recall_hits / len(recall_results) if recall_results else 0.0,
+            handoff_total=len(handoff_results),
+            handoff_correct=handoff_hits,
+            handoff_accuracy=(
+                handoff_hits / len(handoff_results) if handoff_results else 0.0
+            ),
         )
 
     @staticmethod

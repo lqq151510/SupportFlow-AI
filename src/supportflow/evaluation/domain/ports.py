@@ -43,6 +43,7 @@ class EvaluationRunRepositoryPort(Protocol):
         category_correct: bool | None,
         recall_at_5: bool | None,
         detail: dict[str, object],
+        handoff_correct: bool | None = None,
     ) -> None: ...
 
     def finish(
@@ -82,3 +83,13 @@ class RetrievePort(Protocol):
     """检索能力（走当前索引版本的检索路线）。"""
 
     def retrieve(self, query: str, *, limit: int = 5) -> list[RetrievedEvidence]: ...
+
+
+class SecurityGuardPort(Protocol):
+    """安全闸预筛（确定性规则，经组合根适配 agent 模块实现）。
+
+    返回命中的规则名；未命中返回 ``None``。评测用它回答
+    「这条输入在真实管线里会不会被拦下转人工」。
+    """
+
+    def inspect(self, *, subject: str, body: str) -> str | None: ...

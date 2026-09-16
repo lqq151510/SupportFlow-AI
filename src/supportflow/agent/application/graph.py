@@ -1,12 +1,15 @@
 """LangGraph 状态图：阶段 3 的正式运行管线。
 
 ```text
-load_ticket → classify_clean → retrieve_knowledge → tool_decision ─┐
-                                                  ↑                │ 仍需工具
-                                                  └────────────────┘
-                                                                   │ 证据足够
-                                          generate_draft → validate_citations → persist_result
-                                                                          └→ needs_human
+load_ticket → security_guard ─┬─ 拦截（安全/乱码/闲聊）→ needs_human
+                              │ 放行
+                              ↓
+              classify_clean → retrieve_knowledge → tool_decision ─┐
+                                                    ↑                │ 仍需工具
+                                                    └────────────────┘
+                                                                     │ 证据足够
+                                            generate_draft → validate_citations → persist_result
+                                                                                    └→ needs_human
 ```
 
 设计约束（对应 AGENTS.md §5、§6）：
@@ -44,6 +47,7 @@ from supportflow.agent.application.ports import (
     TicketGatewayPort,
 )
 from supportflow.agent.application.retry import with_retries
+from supportflow.agent.application.security_guard import inspect_security
 from supportflow.agent.application.tools import (
     MAX_TOOL_CALLS,
     ToolDecision,
@@ -73,6 +77,7 @@ from supportflow.ticket.application.catalog import parse_category
 logger = logging.getLogger(__name__)
 
 NODE_LOAD = "load_ticket"
+NODE_SECURITY = "security_guard"
 NODE_CLASSIFY = "classify_clean"
 NODE_RETRIEVE = "retrieve_knowledge"
 NODE_TOOL_DECISION = "tool_decision"
@@ -233,6 +238,22 @@ def load_ticket(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
         "ticket_no": facts.ticket_no,
         "subject": facts.subject,
         "body_cleaned": facts.body_cleaned,
+    }
+
+
+def security_guard(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
+    """安全闸：确定性预筛，恶意/无效输入**不进入模型管线**（AGENTS.md §5）。
+
+    拦截即转人工：不分类、不检索、不生成草稿 —— 安全场景不产出无证据结论，
+    且提示注入文本到不了任何提示词。``run.needs_human`` 事件由 executor 统一发送。
+    """
+    scope = _begin_step(deps, state, NODE_SECURITY)
+    finding = inspect_security(state["subject"], state["body_cleaned"])
+    if finding is None:
+        return {**_end_step(deps, state, scope, "clean"), "status": STATE_RUNNING}
+    return {
+        **_end_step(deps, state, scope, f"intercepted rule={finding.rule}"),
+        **_handoff(finding.reason, f"安全闸拦截：{finding.label}（rule={finding.rule}）"),
     }
 
 
@@ -607,7 +628,11 @@ def needs_human(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]:
 
 def _after_load(state: AgentGraphState) -> str:
     # 工单不存在属于不变量被破坏：直接失败，不占用人工队列。
-    return END if state.get("status") == STATE_FAILED else NODE_CLASSIFY
+    return END if state.get("status") == STATE_FAILED else NODE_SECURITY
+
+
+def _after_security(state: AgentGraphState) -> str:
+    return NODE_NEEDS_HUMAN if state.get("status") == STATE_NEEDS_HUMAN else NODE_CLASSIFY
 
 
 def _after_classify(state: AgentGraphState) -> str:
@@ -633,6 +658,7 @@ def build_graph(deps: GraphDeps) -> StateGraph[AgentGraphState]:
     """装配并编译状态图。调用方负责传入 checkpointer 与 thread_id。"""
     graph = StateGraph(AgentGraphState)
     graph.add_node(NODE_LOAD, lambda state: load_ticket(deps, state))
+    graph.add_node(NODE_SECURITY, lambda state: security_guard(deps, state))
     graph.add_node(NODE_CLASSIFY, lambda state: classify_clean(deps, state))
     graph.add_node(NODE_RETRIEVE, lambda state: retrieve_knowledge(deps, state))
     graph.add_node(NODE_TOOL_DECISION, lambda state: tool_decision(deps, state))
@@ -646,7 +672,12 @@ def build_graph(deps: GraphDeps) -> StateGraph[AgentGraphState]:
     graph.add_conditional_edges(
         NODE_LOAD,
         _after_load,
-        {NODE_CLASSIFY: NODE_CLASSIFY, NODE_NEEDS_HUMAN: NODE_NEEDS_HUMAN, END: END},
+        {NODE_SECURITY: NODE_SECURITY, NODE_NEEDS_HUMAN: NODE_NEEDS_HUMAN, END: END},
+    )
+    graph.add_conditional_edges(
+        NODE_SECURITY,
+        _after_security,
+        {NODE_CLASSIFY: NODE_CLASSIFY, NODE_NEEDS_HUMAN: NODE_NEEDS_HUMAN},
     )
     graph.add_conditional_edges(
         NODE_CLASSIFY,
