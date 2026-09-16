@@ -18,6 +18,7 @@ from fastapi import APIRouter, FastAPI
 from supportflow.agent.api.routes import runs_router, ticket_runs_router
 from supportflow.approval.api.routes import router as action_request_router
 from supportflow.bootstrap.container import prepare_database
+from supportflow.evaluation.api.routes import router as evaluation_router
 from supportflow.identity.api.routes import router as identity_router
 from supportflow.knowledge.api.routes import history_router
 from supportflow.knowledge.api.routes import router as knowledge_router
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     api.include_router(history_router)
     api.include_router(model_config_router)
     api.include_router(action_request_router)
+    api.include_router(evaluation_router)
     api.include_router(ticket_runs_router)
     api.include_router(runs_router)
     app.include_router(api)

@@ -70,6 +70,9 @@ def parse_sse(body: str) -> list[tuple[int | None, str, dict[str, object]]]:
 
 #: 按外键依赖倒序排列，TRUNCATE ... CASCADE 一次性清空。
 BUSINESS_TABLES = (
+    "evaluation_results",
+    "evaluation_runs",
+    "evaluation_cases",
     "action_ledger",
     "action_requests",
     "history_ticket_vectors",

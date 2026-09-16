@@ -12,6 +12,7 @@ from sqlalchemy import MetaData
 
 from supportflow.agent.infrastructure import tables as _agent_tables
 from supportflow.approval.infrastructure import tables as _approval_tables
+from supportflow.evaluation.infrastructure import tables as _evaluation_tables
 from supportflow.identity.infrastructure import tables as _identity_tables
 from supportflow.knowledge.infrastructure import tables as _knowledge_tables
 from supportflow.model.infrastructure import tables as _model_tables
@@ -24,6 +25,7 @@ from supportflow.ticket.infrastructure import tables as _ticket_tables
 _SIDE_EFFECT_MODULES = (
     _agent_tables,
     _approval_tables,
+    _evaluation_tables,
     _identity_tables,
     _knowledge_tables,
     _model_tables,

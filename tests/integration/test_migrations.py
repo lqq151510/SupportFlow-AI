@@ -57,6 +57,9 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "history_ticket_vectors",
         "action_requests",
         "action_ledger",
+        "evaluation_cases",
+        "evaluation_runs",
+        "evaluation_results",
     }
     with session_scope() as session:
         found = set(

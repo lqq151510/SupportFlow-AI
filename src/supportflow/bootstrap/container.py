@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID
@@ -45,6 +45,12 @@ from supportflow.approval.infrastructure.repository import (
     SqlAlchemyActionRequestRepository,
 )
 from supportflow.bootstrap.embedding_provider import ConfiguredEmbeddingProvider
+from supportflow.evaluation.application.service import EvaluationService
+from supportflow.evaluation.domain.models import FrozenCorpusDoc, RetrievedEvidence
+from supportflow.evaluation.infrastructure.repository import (
+    SqlAlchemyEvaluationCaseRepository,
+    SqlAlchemyEvaluationRunRepository,
+)
 from supportflow.identity.application.service import AuthService
 from supportflow.identity.domain.models import Principal
 from supportflow.identity.infrastructure.repository import (
@@ -85,6 +91,7 @@ class Services:
     knowledge: KnowledgeService
     model_configs: ModelConfigService
     approvals: ActionApprovalService
+    evaluations: EvaluationService
     runs: RunService
     audit: AuditRecorder
 
@@ -113,6 +120,7 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
     )
     tickets = build_ticket_service(session, cfg)
     approvals = build_approval_service(session, tickets)
+    evaluations = build_evaluation_service(session, cfg)
     runs = RunService(
         runs_repo,
         events_repo,
@@ -136,6 +144,7 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
         knowledge=knowledge,
         model_configs=model_configs,
         approvals=approvals,
+        evaluations=evaluations,
         runs=runs,
         audit=AuditRecorder(session),
     )
@@ -262,6 +271,110 @@ class RunOutcomeAdapter:
     def _is_waiting(self, run_id: UUID) -> bool:
         run = self._runs.find_by_id(run_id)
         return run is not None and run.status is RunStatusEnum.WAITING_APPROVAL
+
+
+class EvaluationCorpusAdapter:
+    """把冻结语料导入知识库（复用知识模块的导入用例，天然幂等）。"""
+
+    def __init__(self, knowledge: KnowledgeService) -> None:
+        self._knowledge = knowledge
+
+    def seed(
+        self, principal: Principal, docs: Sequence[FrozenCorpusDoc]
+    ) -> int:
+        imported = 0
+        for index, doc in enumerate(docs, start=1):
+            result = self._knowledge.import_document(
+                principal,
+                filename=f"{doc.title}.md",
+                content_type="text/markdown",
+                raw=f"# {doc.title}\n\n{doc.content}".encode(),
+                idempotency_key=f"evaluation-corpus-{index}",
+            )
+            if not result.duplicate:
+                imported += 1
+        return imported
+
+
+class EvaluationClassifyAdapter:
+    """按评测模式选择分类实现：mock 走确定性网关，real 走真实网关。
+
+    分类提示词与解析**复用 agent 模块的实现**（经组合根适配），
+    因此评测衡量的就是真实链路的行为，而不是另一份提示词。
+    """
+
+    def __init__(self, gateway_for: GatewayResolver) -> None:
+        self._gateway_for = gateway_for
+
+    def classify(
+        self, *, subject: str, body: str, mode: str
+    ) -> tuple[str | None, float]:
+        from supportflow.agent.application.classification import (
+            build_request as build_classification_request,
+        )
+        from supportflow.agent.application.classification import parse_classification
+
+        gateway = self._gateway_for(mode)
+        try:
+            completion = gateway.complete(
+                build_classification_request(subject=subject, body_cleaned=body)
+            )
+        finally:
+            close = getattr(gateway, "close", None)
+            if close is not None:
+                close()
+        parsed = parse_classification(completion.text)
+        return parsed.category.value, parsed.confidence
+
+
+class EvaluationRetrieveAdapter:
+    """运行内部检索 + 把证据的来源 ID 解析成**文档标题**（与冻结集对齐）。"""
+
+    def __init__(self, session: Session, knowledge: KnowledgeService) -> None:
+        self._session = session
+        self._knowledge = knowledge
+
+    def retrieve(
+        self, query: str, *, limit: int = 5
+    ) -> list[RetrievedEvidence]:
+        results = self._knowledge.retrieve_for_run(query, limit=limit)
+        titles = self._source_titles()
+        return [
+            RetrievedEvidence(
+                source_title=titles.get(str(item.citation.source_id)),
+                quote_text=item.citation.quote_text,
+                rank=item.citation.rank_no,
+            )
+            for item in results
+        ]
+
+    def _source_titles(self) -> dict[str, str]:
+        from sqlalchemy import text as sql_text
+
+        rows = self._session.execute(
+            sql_text("SELECT id::text, title FROM knowledge_documents")
+        ).all()
+        return {str(row[0]): str(row[1]) for row in rows}
+
+
+def build_evaluation_service(session: Session, cfg: Settings) -> EvaluationService:
+    """评测用例。索引版本随当前 Embedding 配置变化，换索引后必须重新评测。"""
+    model_configs = build_model_config_service(session, cfg)
+    knowledge = KnowledgeService(
+        SqlAlchemyKnowledgeRepository(session),
+        IdempotencyStore(session),
+        build_embedding_provider(model_configs, cfg),
+        upload_dir=cfg.upload_dir,
+    )
+    embedding_provider = build_embedding_provider(model_configs, cfg)
+    return EvaluationService(
+        SqlAlchemyEvaluationCaseRepository(session),
+        SqlAlchemyEvaluationRunRepository(session),
+        EvaluationCorpusAdapter(knowledge),
+        EvaluationClassifyAdapter(build_gateway_resolver_for(cfg, model_configs)),
+        EvaluationRetrieveAdapter(session, knowledge),
+        index_version_provider=lambda: embedding_provider.active_index_version().name,
+    )
 
 
 def build_approval_service(session: Session, tickets: TicketService) -> ActionApprovalService:
