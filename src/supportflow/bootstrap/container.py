@@ -37,6 +37,7 @@ from supportflow.agent.infrastructure.repository import (
     SqlAlchemyRunRepository,
     SqlAlchemyRunStepRepository,
 )
+from supportflow.bootstrap.embedding_provider import ConfiguredEmbeddingProvider
 from supportflow.identity.application.service import AuthService
 from supportflow.identity.infrastructure.repository import (
     SqlAlchemySessionRepository,
@@ -47,6 +48,7 @@ from supportflow.identity.infrastructure.security import (
     SecureTokenSource,
 )
 from supportflow.knowledge.application.service import KnowledgeService
+from supportflow.knowledge.infrastructure.embedding_providers import MockEmbeddingProvider
 from supportflow.knowledge.infrastructure.repository import SqlAlchemyKnowledgeRepository
 from supportflow.model.application.service import ModelConfigService
 from supportflow.model.domain.gateway import ChatModelGateway
@@ -120,6 +122,7 @@ def build_services(session: Session, settings: Settings | None = None) -> Servic
     knowledge = KnowledgeService(
         knowledge_repo,
         IdempotencyStore(session),
+        build_embedding_provider(model_configs, cfg),
         upload_dir=cfg.upload_dir,
     )
     return Services(
@@ -145,6 +148,21 @@ def build_model_config_service(session: Session, settings: Settings) -> ModelCon
         lambda: cipher_from_settings(settings),
         request_timeout_seconds=settings.model_request_timeout_seconds,
         max_attempts=settings.model_max_attempts,
+    )
+
+
+def build_embedding_provider(
+    model_configs: ModelConfigService, cfg: Settings
+) -> ConfiguredEmbeddingProvider:
+    """构造知识模块的嵌入提供者。
+
+    未启用 Embedding 配置时退回确定性 Mock（旧版索引版本）—— 这是「未配置」，
+    不是「真实失败后的降级」。
+    """
+    return ConfiguredEmbeddingProvider(
+        model_configs,
+        fallback=MockEmbeddingProvider(),
+        timeout_seconds=cfg.model_request_timeout_seconds,
     )
 
 
@@ -238,12 +256,13 @@ def build_execution_unit(
     """
     cfg = settings or get_settings()
     runs_repo = SqlAlchemyRunRepository(session)
+    model_configs = build_model_config_service(session, cfg)
     knowledge = KnowledgeService(
         SqlAlchemyKnowledgeRepository(session),
         IdempotencyStore(session),
+        build_embedding_provider(model_configs, cfg),
         upload_dir=cfg.upload_dir,
     )
-    model_configs = build_model_config_service(session, cfg)
     if gateway_for is None:
         if gateway is not None:
             gateway_for = lambda _mode: gateway  # noqa: E731 - 固定替身

@@ -22,8 +22,10 @@ from supportflow.knowledge.domain.models import (
 )
 from supportflow.knowledge.infrastructure.tables import (
     HistoryTicketRow,
+    HistoryTicketVectorRow,
     ImportJobRow,
     KnowledgeChunkRow,
+    KnowledgeChunkVectorRow,
     KnowledgeDocumentRow,
 )
 
@@ -100,25 +102,27 @@ class SqlAlchemyKnowledgeRepository:
         self._session.flush()
         return row.id
 
-    def add_chunks(self, document_id: UUID, chunks: list[NewKnowledgeChunk]) -> None:
-        self._session.add_all(
-            [
-                KnowledgeChunkRow(
-                    document_id=document_id,
-                    chunk_no=chunk.chunk_no,
-                    content=chunk.content,
-                    tokenized_content=chunk.tokenized_content,
-                    token_count=chunk.token_count,
-                    locator=chunk.locator,
-                    index_version=chunk.index_version,
-                    embedding=chunk.embedding,
-                    tsv=text("to_tsvector('simple', :tokens)").bindparams(
-                        tokens=chunk.tokenized_content
-                    ),
-                )
-                for chunk in chunks
-            ]
-        )
+    def add_chunks(self, document_id: UUID, chunks: list[NewKnowledgeChunk]) -> list[UUID]:
+        """写入切片并返回其 id —— 新版索引版本需要按切片 id 写向量。"""
+        rows = [
+            KnowledgeChunkRow(
+                document_id=document_id,
+                chunk_no=chunk.chunk_no,
+                content=chunk.content,
+                tokenized_content=chunk.tokenized_content,
+                token_count=chunk.token_count,
+                locator=chunk.locator,
+                index_version=chunk.index_version,
+                embedding=chunk.embedding,
+                tsv=text("to_tsvector('simple', :tokens)").bindparams(
+                    tokens=chunk.tokenized_content
+                ),
+            )
+            for chunk in chunks
+        ]
+        self._session.add_all(rows)
+        self._session.flush()
+        return [row.id for row in rows]
 
     def mark_document_indexed(self, document_id: UUID) -> None:
         row = self._session.get(KnowledgeDocumentRow, document_id)
@@ -130,7 +134,7 @@ class SqlAlchemyKnowledgeRepository:
         stmt = self._session.query(HistoryTicketRow.id).filter_by(source_hash=source_hash)
         return stmt.first() is not None
 
-    def add_history(self, ticket: NewHistoryTicket) -> None:
+    def add_history(self, ticket: NewHistoryTicket) -> UUID:
         row = HistoryTicketRow(
             source_ref=ticket.source_ref,
             sanitized_question=ticket.sanitized_question,
@@ -143,6 +147,82 @@ class SqlAlchemyKnowledgeRepository:
             resolved_at=ticket.resolved_at,
         )
         self._session.add(row)
+        self._session.flush()
+        return row.id
+
+    # --- 新版索引版本（1024 维专用表） ---------------------------------------
+
+    def add_chunk_vectors(
+        self,
+        chunk_ids: list[UUID],
+        *,
+        index_version: str,
+        embedding_model: str,
+        vectors: list[list[float]],
+    ) -> None:
+        """把切片向量写入新版存储。
+
+        ``(chunk_id, index_version)`` 是主键，因此重复索引同一版本是**覆盖**而不是
+        追加 —— 重放导入不会产生重复向量。
+        """
+        if len(chunk_ids) != len(vectors):
+            raise ValueError(
+                f"chunk_ids 与 vectors 数量不一致：{len(chunk_ids)} vs {len(vectors)}"
+            )
+        self._session.add_all(
+            [
+                KnowledgeChunkVectorRow(
+                    chunk_id=chunk_id,
+                    index_version=index_version,
+                    embedding=vector,
+                    embedding_model=embedding_model,
+                )
+                for chunk_id, vector in zip(chunk_ids, vectors, strict=True)
+            ]
+        )
+
+    def add_history_vector(
+        self,
+        ticket_id: UUID,
+        *,
+        index_version: str,
+        embedding_model: str,
+        vector: list[float],
+    ) -> None:
+        self._session.add(
+            HistoryTicketVectorRow(
+                ticket_id=ticket_id,
+                index_version=index_version,
+                embedding=vector,
+                embedding_model=embedding_model,
+            )
+        )
+
+    def search_versioned(
+        self,
+        *,
+        query_tokens: str,
+        embedding: list[float],
+        index_version: str,
+        limit: int,
+    ) -> list[SearchResult]:
+        """新版索引版本的检索：两条路线都**按同一个索引版本过滤**。
+
+        两条路线必须用同一个判据，否则会出现自相矛盾的结果：全文路按文档的版本过滤、
+        向量路按向量的版本过滤，两者不一致时同一次检索会混入不同版本的内容。
+
+        过滤是这一层最重要的不变量 —— 少了它，两个模型的向量会被放在一起比较，
+        而余弦距离在不同向量空间之间没有意义（AGENTS.md §7）。
+        """
+        params = {
+            "query": query_tokens,
+            "embedding": str(embedding),
+            "candidate_limit": 20,
+            "index_version": index_version,
+        }
+        full_text = self._query_candidates(_FULL_TEXT_VERSIONED, params)
+        vector = self._query_candidates(_VECTOR_VERSIONED, params)
+        return _rrf(full_text, vector, limit)
 
     def search(
         self, *, query_tokens: str, embedding: list[float], limit: int
@@ -190,6 +270,53 @@ SELECT 'HISTORY' AS source_type, NULL AS chunk_id, ht.id AS source_id,
        concat('问题：', ht.sanitized_question, E'\\n处理结果：', ht.confirmed_resolution) AS content,
        1 - (ht.embedding <=> CAST(:embedding AS vector)) AS score
 FROM history_tickets ht
+)
+SELECT * FROM candidates
+ORDER BY score DESC, source_id
+LIMIT :candidate_limit
+"""
+
+
+_FULL_TEXT_VERSIONED = """
+WITH candidates AS (
+SELECT 'KNOWLEDGE' AS source_type, kc.id AS chunk_id, kd.id AS source_id,
+       kd.index_version, kc.locator, kc.content,
+       ts_rank_cd(kc.tsv, plainto_tsquery('simple', :query)) AS score
+FROM knowledge_chunks kc JOIN knowledge_documents kd ON kd.id = kc.document_id
+WHERE kd.status = 'INDEXED' AND kd.index_version = :index_version
+  AND kc.tsv @@ plainto_tsquery('simple', :query)
+UNION ALL
+SELECT 'HISTORY' AS source_type, NULL AS chunk_id, ht.id AS source_id,
+       ht.index_version, ht.source_ref AS locator,
+       concat('问题：', ht.sanitized_question, E'\\n处理结果：', ht.confirmed_resolution) AS content,
+       ts_rank_cd(ht.tsv, plainto_tsquery('simple', :query)) AS score
+FROM history_tickets ht
+WHERE ht.index_version = :index_version
+  AND ht.tsv @@ plainto_tsquery('simple', :query)
+)
+SELECT * FROM candidates
+ORDER BY score DESC, source_id
+LIMIT :candidate_limit
+"""
+
+_VECTOR_VERSIONED = """
+WITH candidates AS (
+SELECT 'KNOWLEDGE' AS source_type, kc.id AS chunk_id, kd.id AS source_id,
+       kd.index_version, kc.locator, kc.content,
+       1 - (v.embedding <=> CAST(:embedding AS vector)) AS score
+FROM knowledge_chunk_vectors v
+JOIN knowledge_chunks kc ON kc.id = v.chunk_id
+JOIN knowledge_documents kd ON kd.id = kc.document_id
+WHERE kd.status = 'INDEXED'
+  AND kd.index_version = :index_version AND v.index_version = :index_version
+UNION ALL
+SELECT 'HISTORY' AS source_type, NULL AS chunk_id, ht.id AS source_id,
+       ht.index_version, ht.source_ref AS locator,
+       concat('问题：', ht.sanitized_question, E'\\n处理结果：', ht.confirmed_resolution) AS content,
+       1 - (hv.embedding <=> CAST(:embedding AS vector)) AS score
+FROM history_ticket_vectors hv
+JOIN history_tickets ht ON ht.id = hv.ticket_id
+WHERE ht.index_version = :index_version AND hv.index_version = :index_version
 )
 SELECT * FROM candidates
 ORDER BY score DESC, source_id

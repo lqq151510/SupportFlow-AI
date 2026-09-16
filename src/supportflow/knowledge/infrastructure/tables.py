@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from supportflow.knowledge.application.tokenization import EMBEDDING_DIMENSION
+from supportflow.knowledge.domain.index_versions import VERSIONED_EMBEDDING_DIMENSION
 from supportflow.shared.clock import utcnow
 from supportflow.shared.db import Base
 
@@ -108,8 +109,69 @@ class KnowledgeChunkRow(Base):
     token_count: Mapped[int] = mapped_column(Integer)
     locator: Mapped[str] = mapped_column(String(128))
     index_version: Mapped[str] = mapped_column(String(64))
-    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSION))
+    # 旧版（Mock）向量。新版索引版本的文档**不写这一列**（留 NULL），
+    # 它们的向量在 knowledge_chunk_vectors 里，两者互不读取。
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIMENSION), nullable=True
+    )
     tsv: Mapped[object] = mapped_column(TSVECTOR)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeChunkVectorRow(Base):
+    """新版索引版本的切片向量存储。
+
+    为什么单独一张表而不是给 ``knowledge_chunks`` 加一列：
+
+    - ``vector`` 列的维度是**物理契约**，无法在一列里同时容纳 64 维与 1024 维；
+    - 主键 ``(chunk_id, index_version)`` 让同一切片可以同时拥有多个版本的向量，
+      重新索引不会破坏旧版本的数据（expand-contract）；
+    - 检索**必须**带上 ``index_version`` 过滤，因此跨模型比较向量在结构上不可能发生
+      （AGENTS.md §7）。
+
+    该表列维度固定为 :data:`VERSIONED_EMBEDDING_DIMENSION`；换维度需要新迁移。
+    """
+
+    __tablename__ = "knowledge_chunk_vectors"
+    __table_args__ = (
+        Index(
+            "ix_knowledge_chunk_vectors_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        Index("ix_knowledge_chunk_vectors_version", "index_version"),
+    )
+
+    chunk_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_chunks.id", ondelete="CASCADE"), primary_key=True
+    )
+    index_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    embedding: Mapped[list[float]] = mapped_column(Vector(VERSIONED_EMBEDDING_DIMENSION))
+    embedding_model: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class HistoryTicketVectorRow(Base):
+    """新版索引版本的历史工单向量存储。理由同 ``KnowledgeChunkVectorRow``。"""
+
+    __tablename__ = "history_ticket_vectors"
+    __table_args__ = (
+        Index(
+            "ix_history_ticket_vectors_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        Index("ix_history_ticket_vectors_version", "index_version"),
+    )
+
+    ticket_id: Mapped[UUID] = mapped_column(
+        ForeignKey("history_tickets.id", ondelete="CASCADE"), primary_key=True
+    )
+    index_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    embedding: Mapped[list[float]] = mapped_column(Vector(VERSIONED_EMBEDDING_DIMENSION))
+    embedding_model: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -132,7 +194,11 @@ class HistoryTicketRow(Base):
     source_hash: Mapped[str] = mapped_column(String(64), unique=True)
     index_version: Mapped[str] = mapped_column(String(64))
     tokenized_content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSION))
+    # 旧版（Mock）向量。新版索引版本的文档**不写这一列**（留 NULL），
+    # 它们的向量在 knowledge_chunk_vectors 里，两者互不读取。
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIMENSION), nullable=True
+    )
     tsv: Mapped[object] = mapped_column(TSVECTOR)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

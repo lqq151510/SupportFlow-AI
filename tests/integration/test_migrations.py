@@ -53,6 +53,8 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "checkpoint_blobs",
         "checkpoint_writes",
         "model_configs",
+        "knowledge_chunk_vectors",
+        "history_ticket_vectors",
     }
     with session_scope() as session:
         found = set(
@@ -155,6 +157,40 @@ def test_knowledge_indexes_use_vector_and_gin(migrated: None) -> None:
     assert "USING hnsw" in definitions["ix_knowledge_chunks_embedding_hnsw"]
     assert "USING gin" in definitions["ix_history_tickets_tsv"]
     assert "USING hnsw" in definitions["ix_history_tickets_embedding_hnsw"]
+
+
+def test_versioned_vector_tables_are_dimension_bound(migrated: None) -> None:
+    """新版向量表的列维度必须是 1024，且带 HNSW 索引。
+
+    维度是索引版本契约的一部分：该表只服务一个索引版本，因此列维度写死在迁移里。
+    若有人把它改成别的维度，跨索引版本混用向量就会变成可能。
+    """
+    for table, pk_columns in (
+        ("knowledge_chunk_vectors", ("chunk_id", "index_version")),
+        ("history_ticket_vectors", ("ticket_id", "index_version")),
+    ):
+        column_type = _scalar(
+            "SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            f"WHERE c.relname = '{table}' AND a.attname = 'embedding'"
+        )
+        assert column_type == "vector(1024)", column_type
+
+        primary_key = _scalar(
+            "SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum)) "
+            "FROM pg_index i "
+            "JOIN pg_class c ON c.oid = i.indrelid "
+            "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey) "
+            f"WHERE c.relname = '{table}' AND i.indisprimary"
+        )
+        assert primary_key == ",".join(pk_columns), primary_key
+
+        index_def = _scalar(
+            "SELECT indexdef FROM pg_indexes WHERE tablename = "
+            f"'{table}' AND indexname LIKE '%embedding_hnsw'"
+        )
+        assert isinstance(index_def, str)
+        assert "hnsw" in index_def and "vector_cosine_ops" in index_def
 
 
 def test_model_configs_enabled_is_unique_per_capability(migrated: None) -> None:

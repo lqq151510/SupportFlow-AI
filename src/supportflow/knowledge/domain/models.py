@@ -76,7 +76,7 @@ class NewKnowledgeChunk:
     token_count: int
     locator: str
     index_version: str
-    embedding: list[float]
+    embedding: list[float] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,5 +87,5 @@ class NewHistoryTicket:
     source_hash: str
     index_version: str
     tokenized_content: str
-    embedding: list[float]
+    embedding: list[float] | None
     resolved_at: datetime | None

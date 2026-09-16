@@ -264,6 +264,27 @@ def test_quota_exhausted_429_is_not_retryable() -> None:
     assert "额度或余额不足" in (excinfo.value.detail or "")
 
 
+def test_flat_envelope_is_parsed() -> None:
+    """硅基流动实测形状：``{"code": 30014, "data": null, "message": "Token is invalid."}``
+    —— 码与说明都在**顶层**，没有 error 包裹。实测 401 就是长这样。"""
+    body = {"code": 30014, "data": None, "message": "Token is invalid."}
+    with respx.mock:
+        respx.post(ENDPOINT).mock(return_value=httpx.Response(401, json=body))
+        with pytest.raises(ModelAuthenticationFailed) as excinfo:
+            _gateway().complete(_request())
+
+    assert excinfo.value.upstream_message == "Token is invalid."
+
+
+def test_flat_envelope_quota_code_is_not_retryable() -> None:
+    """扁平信封下同样要能识别额度问题，否则会退化成「按文案猜」。"""
+    body = {"code": 30001, "data": None, "message": "insufficient balance"}
+    with respx.mock:
+        respx.post(ENDPOINT).mock(return_value=httpx.Response(429, json=body))
+        with pytest.raises(ModelRequestRejected):
+            _gateway().complete(_request())
+
+
 @pytest.mark.parametrize(
     "body",
     [

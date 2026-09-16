@@ -83,8 +83,13 @@ class UpstreamError:
 def parse_upstream_error(response: httpx.Response) -> UpstreamError:
     """抽取上游错误说明，供分类与管理员诊断。
 
-    兼容两种常见信封：OpenAI 风格的 ``{"error": {"message": ...}}``
-    与智谱风格 ``{"error": {"code": "1000", "message": "身份验证失败。"}}``。
+    兼容三种实测过的信封：
+
+    - 智谱：``{"error": {"code": "1113", "message": "余额不足…"}}``
+    - OpenAI：``{"error": {"type": "insufficient_quota", "message": "…"}}``
+    - 硅基流动：``{"code": 30014, "data": null, "message": "Token is invalid."}``
+      —— **扁平结构，码与说明都在顶层**，没有 ``error`` 包裹。
+
     解析失败返回两个 ``None`` —— 诊断信息缺失不该影响错误分类。
     """
     empty = UpstreamError(code=None, message=None)
@@ -104,7 +109,9 @@ def parse_upstream_error(response: httpx.Response) -> UpstreamError:
     elif isinstance(error, str):
         message = error
     else:
-        message = body.get("message")
+        # 扁平信封：码与说明都在顶层。
+        message = body.get("message") or body.get("msg")
+        code = body.get("code") or body.get("type")
 
     normalized_code = str(code) if isinstance(code, (int, str)) else None
     normalized_message = (

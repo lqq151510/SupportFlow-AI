@@ -16,11 +16,8 @@ from docx import Document
 from pypdf import PdfReader
 
 from supportflow.identity.domain.models import Principal
-from supportflow.knowledge.application.tokenization import (
-    EMBEDDING_DIMENSION,
-    mock_embedding,
-    tokenize,
-)
+from supportflow.knowledge.application.tokenization import tokenize
+from supportflow.knowledge.domain.index_versions import IndexVersionSpec
 from supportflow.knowledge.domain.models import (
     ImportJob,
     ImportKind,
@@ -30,13 +27,11 @@ from supportflow.knowledge.domain.models import (
     NewKnowledgeDocument,
     SearchResult,
 )
-from supportflow.knowledge.domain.ports import KnowledgeRepositoryPort
+from supportflow.knowledge.domain.ports import EmbeddingProviderPort, KnowledgeRepositoryPort
 from supportflow.shared.errors import Forbidden, InvalidRequest
 from supportflow.shared.idempotency import IdempotencyPort, ReplayedResponse, fingerprint
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-DEFAULT_INDEX_VERSION = "mock-v1"
-MOCK_EMBEDDING_MODEL = "mock-hash-64"
 CHUNK_SIZE = 600
 CHUNK_OVERLAP = 100
 DOCUMENT_IMPORT_SCOPE = "POST /api/v1/knowledge/imports"
@@ -61,11 +56,14 @@ class KnowledgeService:
         self,
         repository: KnowledgeRepositoryPort,
         idempotency: IdempotencyPort,
+        embedder: EmbeddingProviderPort,
         *,
         upload_dir: Path,
     ) -> None:
         self._repository = repository
         self._idempotency = idempotency
+        #: 索引版本与向量都来自它 —— 两者必须匹配，所以只注入一个依赖。
+        self._embedder = embedder
         self._upload_dir = upload_dir
 
     def import_document(
@@ -80,6 +78,7 @@ class KnowledgeService:
         self._require_admin(principal)
         self._validate_upload(filename, raw)
         content_hash = hashlib.sha256(raw).hexdigest()
+        spec = self._embedder.active_index_version()
         replayed = self._idempotency.reserve(
             DOCUMENT_IMPORT_SCOPE,
             idempotency_key,
@@ -89,12 +88,12 @@ class KnowledgeService:
             return self._as_replay(replayed)
         # 端口契约返回 bool：此处必须按真值判断。曾用 ``is not None`` 判断，
         # 因 bool 永远不是 None，导致每次导入都被误判为重复文档而跳过入库。
-        duplicated = self._repository.document_exists(content_hash, DEFAULT_INDEX_VERSION)
+        duplicated = self._repository.document_exists(content_hash, spec.name)
         job = self._repository.create_job(
             kind=ImportKind.DOCUMENT,
             source_name=filename,
             content_hash=content_hash,
-            index_version=DEFAULT_INDEX_VERSION,
+            index_version=spec.name,
         )
         if duplicated:
             finished = self._repository.finish_job(job.id, progress=100)
@@ -112,27 +111,13 @@ class KnowledgeService:
                     mime_type=mime_type,
                     object_key=object_key,
                     content_hash=content_hash,
-                    index_version=DEFAULT_INDEX_VERSION,
-                    embedding_model=MOCK_EMBEDDING_MODEL,
-                    embedding_dim=EMBEDDING_DIMENSION,
+                    index_version=spec.name,
+                    embedding_model=spec.embedding_model,
+                    embedding_dim=spec.dimension,
                 )
             )
             chunks = _chunk_text(extracted)
-            self._repository.add_chunks(
-                document_id,
-                [
-                    NewKnowledgeChunk(
-                        chunk_no=number,
-                        content=chunk,
-                        tokenized_content=tokenize(chunk),
-                        token_count=len(tokenize(chunk).split()),
-                        locator=f"chunk:{number}",
-                        index_version=DEFAULT_INDEX_VERSION,
-                        embedding=mock_embedding(chunk),
-                    )
-                    for number, chunk in enumerate(chunks, start=1)
-                ],
-            )
+            self._index_chunks(document_id, chunks, spec)
             self._repository.mark_document_indexed(document_id)
             finished = self._repository.finish_job(job.id, progress=100)
             result = ImportResult(finished, duplicate=False)
@@ -162,11 +147,12 @@ class KnowledgeService:
         )
         if replayed is not None:
             return self._as_replay(replayed)
+        spec = self._embedder.active_index_version()
         job = self._repository.create_job(
             kind=ImportKind.HISTORY,
             source_name=filename,
             content_hash=content_hash,
-            index_version=DEFAULT_INDEX_VERSION,
+            index_version=spec.name,
         )
         inserted = 0
         try:
@@ -182,18 +168,27 @@ class KnowledgeService:
                 if self._repository.history_exists(row_hash):
                     continue
                 content = f"问题：{question}\n处理结果：{resolution}"
-                self._repository.add_history(
+                vector = self._embedder.embed([content])[0]
+                ticket_id = self._repository.add_history(
                     NewHistoryTicket(
                         source_ref=source_ref,
                         sanitized_question=question,
                         confirmed_resolution=resolution,
                         source_hash=row_hash,
-                        index_version=DEFAULT_INDEX_VERSION,
+                        index_version=spec.name,
                         tokenized_content=tokenize(content),
-                        embedding=mock_embedding(content),
+                        # 旧版把向量写在工单行上；新版不写（留 NULL），向量进专用表。
+                        embedding=None if not spec.is_legacy else vector,
                         resolved_at=_parse_time(entry.get("resolved_at")),
                     )
                 )
+                if not spec.is_legacy:
+                    self._repository.add_history_vector(
+                        ticket_id,
+                        index_version=spec.name,
+                        embedding_model=spec.embedding_model,
+                        vector=vector,
+                    )
                 inserted += 1
             finished = self._repository.finish_job(job.id, progress=100)
             result = ImportResult(finished, duplicate=inserted == 0)
@@ -220,11 +215,54 @@ class KnowledgeService:
         normalized = tokenize(query)
         if not normalized:
             return []
-        return self._repository.search(
+        spec = self._embedder.active_index_version()
+        vector = self._embedder.embed([query])[0]
+        if spec.is_legacy:
+            # 旧版：向量在 knowledge_chunks.embedding 里，走既有语句。
+            return self._repository.search(
+                query_tokens=normalized, embedding=vector, limit=limit
+            )
+        # 新版：向量在专用表里，两条路线都按同一个索引版本过滤。
+        return self._repository.search_versioned(
             query_tokens=normalized,
-            embedding=mock_embedding(query),
+            embedding=vector,
+            index_version=spec.name,
             limit=limit,
         )
+
+    def _index_chunks(
+        self, document_id: UUID, chunks: list[str], spec: IndexVersionSpec
+    ) -> None:
+        """按当前索引版本写入切片与向量。
+
+        向量与「写到哪里」由同一个 ``spec`` 决定 —— 这正是把索引版本与嵌入能力
+        放在同一个端口上的原因：两者一旦分离，就可能出现「版本说 1024、向量是 64 维」。
+        """
+        vectors = self._embedder.embed(chunks)
+        chunk_ids = self._repository.add_chunks(
+            document_id,
+            [
+                NewKnowledgeChunk(
+                    chunk_no=number,
+                    content=chunk,
+                    tokenized_content=tokenize(chunk),
+                    token_count=len(tokenize(chunk).split()),
+                    locator=f"chunk:{number}",
+                    index_version=spec.name,
+                    embedding=None if not spec.is_legacy else vector,
+                )
+                for number, (chunk, vector) in enumerate(
+                    zip(chunks, vectors, strict=True), start=1
+                )
+            ],
+        )
+        if not spec.is_legacy:
+            self._repository.add_chunk_vectors(
+                chunk_ids,
+                index_version=spec.name,
+                embedding_model=spec.embedding_model,
+                vectors=vectors,
+            )
 
     def _store_raw(self, content_hash: str, filename: str, raw: bytes) -> str:
         suffix = Path(filename).suffix.lower()
