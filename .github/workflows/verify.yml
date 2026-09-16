@@ -25,6 +25,47 @@ jobs:
         run: docker info
       - run: mvn -B verify
 
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Confirm Docker is available for Testcontainers
+        run: docker info
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: '0.12.8'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync dependencies (uv.lock is authoritative)
+        run: uv sync --frozen
+      - name: Ruff
+        run: uv run ruff check src tests
+      - name: Mypy
+        run: uv run mypy src
+      - name: Pytest with coverage
+        run: |
+          uv run pytest -q --cov=supportflow --cov-report=term --cov-report=json:coverage.json
+      - name: Enforce coverage gates (AGENTS.md section 9)
+        run: |
+          uv run python - <<'PY'
+          import json, sys
+          totals = json.loads(open("coverage.json").read())["totals"]
+          line_pct = 100 * totals["covered_lines"] / totals["num_statements"]
+          branch_pct = (
+              100 * totals["covered_branches"] / totals["num_branches"]
+              if totals["num_branches"]
+              else 100.0
+          )
+          print(f"line {line_pct:.2f}% (gate 85), branch {branch_pct:.2f}% (gate 75)")
+          failures = [
+              gate
+              for gate, actual, floor in (("line", line_pct, 85), ("branch", branch_pct, 75))
+              if actual < floor
+          ]
+          sys.exit(f"coverage gate failed: {failures}") if failures else None
+          PY
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15

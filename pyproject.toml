@@ -64,10 +64,28 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["supportflow"]
+# 纯接口声明文件不参与覆盖率统计：它们只含 Protocol 方法（`...`），
+# 其「方法体 → exit」的隐式分支是测量噪声，不是可测逻辑。
+# 含运行时实现（dataclass、as_state 等）的 agent/application/ports.py 保留测量。
+omit = [
+    "src/supportflow/approval/domain/ports.py",
+    "src/supportflow/agent/domain/ports.py",
+    "src/supportflow/evaluation/domain/ports.py",
+    "src/supportflow/identity/domain/ports.py",
+    "src/supportflow/knowledge/domain/ports.py",
+    "src/supportflow/model/domain/ports.py",
+    "src/supportflow/ticket/domain/ports.py",
+]
 
 [tool.coverage.report]
 show_missing = true
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    # Protocol 方法体是声明（`...`），不是可测逻辑 —— 排除后分支统计才反映真实业务分支。
+    '^\s*\.\.\.\s*$',
+]
 
 [tool.ruff]
 line-length = 100
