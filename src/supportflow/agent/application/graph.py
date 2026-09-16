@@ -489,6 +489,14 @@ def persist_result(deps: GraphDeps, state: AgentGraphState) -> dict[str, object]
         }
 
     deps.tickets.assign_category(UUID(state["ticket_id"]), category)
+    # 与分类写入、DRAFT_CREATED 事件处于同一事务边界（节点末尾的 deps.commit），
+    # 因此崩溃恢复时不会留下「写了事件却没落地草稿」的半成品。
+    deps.tickets.save_draft(
+        ticket_id=UUID(state["ticket_id"]),
+        run_id=UUID(state["run_id"]),
+        content=state.get("draft_text", ""),
+        citations=list(state.get("citations", [])),
+    )
     deps.events.append(
         UUID(state["run_id"]),
         RunEventType.DRAFT_CREATED,
@@ -636,7 +644,9 @@ def build_graph(deps: GraphDeps) -> StateGraph[AgentGraphState]:
 
     graph.add_edge(START, NODE_LOAD)
     graph.add_conditional_edges(
-        NODE_LOAD, _after_load, {NODE_CLASSIFY: NODE_CLASSIFY, NODE_NEEDS_HUMAN: NODE_NEEDS_HUMAN}
+        NODE_LOAD,
+        _after_load,
+        {NODE_CLASSIFY: NODE_CLASSIFY, NODE_NEEDS_HUMAN: NODE_NEEDS_HUMAN, END: END},
     )
     graph.add_conditional_edges(
         NODE_CLASSIFY,

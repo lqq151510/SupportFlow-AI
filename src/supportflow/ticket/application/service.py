@@ -14,11 +14,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from supportflow.identity.domain.models import Principal
 from supportflow.shared.errors import (
+    Conflict,
     Forbidden,
     ModelModeNotPermitted,
     ModelModeUnavailable,
@@ -29,12 +31,21 @@ from supportflow.shared.errors import (
 from supportflow.shared.idempotency import ReplayedResponse, fingerprint
 from supportflow.ticket.application.ports import FirstRunSchedulerPort, IdempotencyPort
 from supportflow.ticket.domain.cleaning import clean_body
-from supportflow.ticket.domain.models import NewTicket, Ticket, TicketStatus
-from supportflow.ticket.domain.ports import TicketRepositoryPort
+from supportflow.ticket.domain.models import (
+    Draft,
+    DraftAuthor,
+    DraftStatus,
+    NewTicket,
+    Ticket,
+    TicketStatus,
+)
+from supportflow.ticket.domain.ports import DraftRepositoryPort, TicketRepositoryPort
 
 SUBMIT_TICKET_SCOPE = "POST /api/v1/tickets"
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+EDIT_DRAFT_PATH = "PATCH /api/v1/tickets/{ticket_id}/drafts/{draft_id}"
+PUBLISH_DRAFT_PATH = "POST /api/v1/tickets/{ticket_id}/drafts/{draft_id}/publish"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,10 +64,22 @@ class TicketSubmission:
     payload: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class DraftResult:
+    """草稿写操作结果（编辑/发布）。
+
+    重放时 ``draft`` 由首次落库的响应体重建，因此重放返回的内容与首次完全一致。
+    """
+
+    draft: Draft
+    replayed: bool
+
+
 class TicketService:
     def __init__(
         self,
         tickets: TicketRepositoryPort,
+        drafts: DraftRepositoryPort,
         idempotency: IdempotencyPort,
         scheduler: FirstRunSchedulerPort,
         *,
@@ -64,6 +87,7 @@ class TicketService:
         available_model_modes: frozenset[str],
     ) -> None:
         self._tickets = tickets
+        self._drafts = drafts
         self._idempotency = idempotency
         self._scheduler = scheduler
         self._default_model_mode = default_model_mode
@@ -215,4 +239,158 @@ class TicketService:
             status_code=replayed.status_code,
             replayed=True,
             payload=dict(payload),
+        )
+
+    # --- 草稿（agent 生成 → 人工审核 → 发布） ----------------------------------
+    def save_agent_draft(
+        self,
+        *,
+        ticket_id: UUID,
+        run_id: UUID,
+        content: str,
+        citations: list[dict[str, Any]],
+    ) -> Draft:
+        """把一次运行的产出落为草稿的 ACTIVE 版本。
+
+        由 agent 图在 ``persist_result`` 节点调用；不需要幂等键（运行本身有检查点保证
+        至多一次业务效果）。工单不存在时抛 ``NotFound``。重复运行会派生新版本并把旧
+        ACTIVE 版本归档。
+        """
+        ticket = self._tickets.find_by_id(ticket_id)
+        if ticket is None:
+            raise NotFound("工单不存在")
+        return self._drafts.add_new_version(
+            ticket_id,
+            author=DraftAuthor.AGENT,
+            content=content,
+            citations=citations,
+            run_id=run_id,
+            editor_user_id=None,
+        )
+
+    def list_drafts(self, principal: Principal, ticket_id: UUID) -> list[Draft]:
+        """列出工单的全部草稿版本（按版本升序）。
+
+        可见性由 ``get_ticket`` 在服务端强制；草稿依附于工单，看到工单即看得到草稿。
+        """
+        self.get_ticket(principal, ticket_id)  # 触发 404/可见性判定
+        return self._drafts.list_for_ticket(ticket_id)
+
+    def edit_draft(
+        self,
+        principal: Principal,
+        *,
+        ticket_id: UUID,
+        draft_id: UUID,
+        content: str,
+        idempotency_key: str,
+    ) -> DraftResult:
+        """人工编辑当前 ACTIVE 草稿：派生新版本（author=human），旧版本归档。
+
+        仅坐席与管理员可编辑；需要 CSRF 与幂等键。相同键 + 相同内容重放返回首次结果。
+        """
+        self._require_staff(principal)
+        self.get_ticket(principal, ticket_id)  # 触发 404/可见性判定
+        existing = self._drafts.find_by_id(draft_id)
+        if existing is None or existing.ticket_id != ticket_id:
+            raise NotFound("草稿不存在")
+
+        request_hash = fingerprint({"draft_id": str(draft_id), "content": content})
+        scope = EDIT_DRAFT_PATH.format(ticket_id=ticket_id, draft_id=draft_id)
+        replayed = self._idempotency.reserve(scope, idempotency_key, request_hash)
+        if replayed is not None:
+            return DraftResult(draft=self._draft_from_payload(replayed.body), replayed=True)
+
+        if existing.status is not DraftStatus.ACTIVE:
+            raise Conflict("只有当前活动草稿可以编辑")
+
+        new_draft = self._drafts.add_new_version(
+            ticket_id,
+            author=DraftAuthor.HUMAN,
+            content=content,
+            citations=existing.citations,
+            run_id=existing.run_id,
+            editor_user_id=principal.user_id,
+        )
+        self._idempotency.complete(
+            scope, idempotency_key, status_code=200, body=self._draft_payload(new_draft)
+        )
+        return DraftResult(draft=new_draft, replayed=False)
+
+    def publish_draft(
+        self,
+        principal: Principal,
+        *,
+        ticket_id: UUID,
+        draft_id: UUID,
+        idempotency_key: str,
+    ) -> DraftResult:
+        """把当前 ACTIVE 草稿发布为给客户的正式回复。
+
+        仅坐席与管理员可发布；需要 CSRF 与幂等键。条件更新保证并发发布只有一次生效。
+        发布后草稿成为终态 PUBLISHED，不可再编辑。
+        """
+        self._require_staff(principal)
+        self.get_ticket(principal, ticket_id)  # 触发 404/可见性判定
+        existing = self._drafts.find_by_id(draft_id)
+        if existing is None or existing.ticket_id != ticket_id:
+            raise NotFound("草稿不存在")
+
+        request_hash = fingerprint({"draft_id": str(draft_id)})
+        scope = PUBLISH_DRAFT_PATH.format(ticket_id=ticket_id, draft_id=draft_id)
+        replayed = self._idempotency.reserve(scope, idempotency_key, request_hash)
+        if replayed is not None:
+            return DraftResult(draft=self._draft_from_payload(replayed.body), replayed=True)
+
+        if existing.status is not DraftStatus.ACTIVE:
+            raise Conflict("只有当前活动草稿可以发布")
+
+        published = self._drafts.publish(draft_id, published_by=principal.user_id)
+        if published is None:
+            raise Conflict("草稿已被发布或状态已变化，请刷新后重试")
+        self._idempotency.complete(
+            scope, idempotency_key, status_code=200, body=self._draft_payload(published)
+        )
+        return DraftResult(draft=published, replayed=False)
+
+    @staticmethod
+    def _draft_payload(draft: Draft) -> dict[str, Any]:
+        return {
+            "id": str(draft.id),
+            "ticket_id": str(draft.ticket_id),
+            "version": draft.version,
+            "author": draft.author.value,
+            "content": draft.content,
+            "citations": draft.citations,
+            "status": draft.status.value,
+            "editor_user_id": str(draft.editor_user_id) if draft.editor_user_id else None,
+            "run_id": str(draft.run_id) if draft.run_id else None,
+            "created_at": draft.created_at.isoformat(),
+            "published_at": draft.published_at.isoformat() if draft.published_at else None,
+            "published_by": str(draft.published_by) if draft.published_by else None,
+        }
+
+    @staticmethod
+    def _draft_from_payload(payload: dict[str, Any]) -> Draft:
+        return Draft(
+            id=UUID(str(payload["id"])),
+            ticket_id=UUID(str(payload["ticket_id"])),
+            version=int(payload["version"]),
+            author=DraftAuthor(payload["author"]),
+            content=payload["content"],
+            citations=payload["citations"],
+            status=DraftStatus(payload["status"]),
+            editor_user_id=(
+                UUID(str(payload["editor_user_id"])) if payload.get("editor_user_id") else None
+            ),
+            run_id=UUID(str(payload["run_id"])) if payload.get("run_id") else None,
+            created_at=datetime.fromisoformat(payload["created_at"]),
+            published_at=(
+                datetime.fromisoformat(payload["published_at"])
+                if payload.get("published_at")
+                else None
+            ),
+            published_by=(
+                UUID(str(payload["published_by"])) if payload.get("published_by") else None
+            ),
         )

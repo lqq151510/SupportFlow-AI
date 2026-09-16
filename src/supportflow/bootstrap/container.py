@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -78,8 +79,11 @@ from supportflow.shared.config import Settings, get_settings
 from supportflow.shared.db import session_scope
 from supportflow.shared.idempotency import IdempotencyStore
 from supportflow.ticket.application.service import TicketService
-from supportflow.ticket.domain.models import TicketCategory
-from supportflow.ticket.infrastructure.repository import SqlAlchemyTicketRepository
+from supportflow.ticket.domain.models import DraftAuthor, TicketCategory
+from supportflow.ticket.infrastructure.repository import (
+    SqlAlchemyDraftRepository,
+    SqlAlchemyTicketRepository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +202,7 @@ def build_ticket_service(session: Session, cfg: Settings) -> TicketService:
     model_configs = build_model_config_service(session, cfg)
     return TicketService(
         SqlAlchemyTicketRepository(session),
+        SqlAlchemyDraftRepository(session),
         IdempotencyStore(session),
         FirstRunScheduler(SqlAlchemyRunRepository(session)),
         default_model_mode=cfg.model_mode,
@@ -427,13 +432,17 @@ def services_scope(settings: Settings | None = None) -> Iterator[Services]:
 
 
 class TicketFactsAdapter:
-    """把 ``ticket`` 仓储收敛成 agent 需要的两个能力。
+    """把 ``ticket`` 仓储收敛成 agent 需要的能力。
 
-    agent 只应看到「工单事实」与「写入分类」，而不是整个工单仓储 —— 见 AGENTS.md §3。
+    agent 只应看到「工单事实」「写入分类」与「落草稿」，而不是整个工单仓储 ——
+    见 AGENTS.md §3。
     """
 
-    def __init__(self, repository: SqlAlchemyTicketRepository) -> None:
+    def __init__(
+        self, repository: SqlAlchemyTicketRepository, drafts: SqlAlchemyDraftRepository
+    ) -> None:
         self._repository = repository
+        self._drafts = drafts
 
     def facts(self, ticket_id: UUID) -> TicketFacts | None:
         ticket = self._repository.find_by_id(ticket_id)
@@ -450,6 +459,24 @@ class TicketFactsAdapter:
 
     def assign_category(self, ticket_id: UUID, category: TicketCategory) -> None:
         self._repository.assign_category(ticket_id, category)
+
+    def save_draft(
+        self,
+        *,
+        ticket_id: UUID,
+        run_id: UUID,
+        content: str,
+        citations: list[dict[str, Any]],
+    ) -> None:
+        """把一次运行的产出落为草稿。与同一节点的分类写入、DRAFT_CREATED 事件同事务。"""
+        self._drafts.add_new_version(
+            ticket_id,
+            author=DraftAuthor.AGENT,
+            content=content,
+            citations=citations,
+            run_id=run_id,
+            editor_user_id=None,
+        )
 
 
 class RetrievalAdapter:
@@ -511,7 +538,9 @@ def build_execution_unit(
         gateway_for=gateway_for,
         retrieval=retrieval or RetrievalAdapter(knowledge),
         actions=ApprovalProposalAdapter(approvals),
-        tickets=TicketFactsAdapter(SqlAlchemyTicketRepository(session)),
+        tickets=TicketFactsAdapter(
+            SqlAlchemyTicketRepository(session), SqlAlchemyDraftRepository(session)
+        ),
         runs=runs_repo,
         events=SqlAlchemyRunEventRepository(session),
         steps=SqlAlchemyRunStepRepository(session),

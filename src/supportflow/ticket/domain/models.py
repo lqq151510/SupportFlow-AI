@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 
@@ -34,6 +35,41 @@ CATEGORY_LABELS: dict[TicketCategory, str] = {
 class TicketStatus(StrEnum):
     OPEN = "OPEN"
     CLOSED = "CLOSED"
+
+
+class DraftStatus(StrEnum):
+    """草稿版本的生命周期状态。
+
+    ACTIVE 表示当前可编辑/可发布的工作草稿；编辑会派生出新版本并把旧版本置为
+    ARCHIVED；发布把 ACTIVE 置为 PUBLISHED（终态，成为给客户的正式回复）。
+    """
+
+    ACTIVE = "ACTIVE"
+    PUBLISHED = "PUBLISHED"
+    ARCHIVED = "ARCHIVED"
+
+
+class DraftAuthor(StrEnum):
+    """草稿版本的来源：agent 自动生成，或 human 在审核中编辑。"""
+
+    AGENT = "agent"
+    HUMAN = "human"
+
+
+@dataclass(frozen=True, slots=True)
+class Draft:
+    id: UUID
+    ticket_id: UUID
+    version: int
+    author: DraftAuthor
+    content: str
+    citations: list[dict[str, Any]]
+    status: DraftStatus
+    editor_user_id: UUID | None
+    run_id: UUID | None
+    created_at: datetime
+    published_at: datetime | None = None
+    published_by: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

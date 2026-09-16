@@ -60,6 +60,7 @@ def test_all_business_tables_exist(migrated: None) -> None:
         "evaluation_cases",
         "evaluation_runs",
         "evaluation_results",
+        "drafts",
     }
     with session_scope() as session:
         found = set(
@@ -141,12 +142,42 @@ def test_idempotency_scope_key_is_unique(migrated: None) -> None:
     assert count == 1
 
 
+def test_idempotency_scope_supports_nested_draft_operation_paths(migrated: None) -> None:
+    """草稿编辑 scope 含两个 UUID，64 字符列会在真实写入时截断失败。"""
+    length = _scalar(
+        "SELECT character_maximum_length FROM information_schema.columns "
+        "WHERE table_name = 'idempotency_records' AND column_name = 'scope'"
+    )
+    assert length == 255
+
+
+def test_drafts_table_has_ticket_version_and_status_lookup_indexes(migrated: None) -> None:
+    """版本链读取和当前 ACTIVE 草稿查询都必须有对应访问路径。"""
+    with session_scope() as session:
+        definitions: dict[str, str] = {
+            str(row[0]): str(row[1])
+            for row in session.execute(
+                text(
+                    "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'drafts' "
+                    "AND indexname IN ('ix_drafts_ticket_version', 'ix_drafts_ticket_status')"
+                )
+            )
+        }
+
+    assert set(definitions) == {"ix_drafts_ticket_version", "ix_drafts_ticket_status"}
+    assert "ticket_id" in definitions["ix_drafts_ticket_version"]
+    assert "version" in definitions["ix_drafts_ticket_version"]
+    assert "ticket_id" in definitions["ix_drafts_ticket_status"]
+    assert "status" in definitions["ix_drafts_ticket_status"]
+
+
 def test_knowledge_indexes_use_vector_and_gin(migrated: None) -> None:
     extension = _scalar("SELECT COUNT(*) FROM pg_extension WHERE extname = 'vector'")
     assert extension == 1
     with session_scope() as session:
-        definitions = dict(
-            session.execute(
+        definitions: dict[str, str] = {
+            str(row[0]): str(row[1])
+            for row in session.execute(
                 text(
                     "SELECT indexname, indexdef FROM pg_indexes "
                     "WHERE indexname IN ("
@@ -156,8 +187,8 @@ def test_knowledge_indexes_use_vector_and_gin(migrated: None) -> None:
                     "'ix_history_tickets_embedding_hnsw'"
                     ")"
                 )
-            ).all()
-        )
+            )
+        }
     assert "USING gin" in definitions["ix_knowledge_chunks_tsv"]
     assert "USING hnsw" in definitions["ix_knowledge_chunks_embedding_hnsw"]
     assert "USING gin" in definitions["ix_history_tickets_tsv"]

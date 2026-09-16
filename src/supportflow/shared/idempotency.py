@@ -48,7 +48,7 @@ class IdempotencyRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    scope: Mapped[str] = mapped_column(String(64))
+    scope: Mapped[str] = mapped_column(String(255))
     key: Mapped[str] = mapped_column(String(200))
     request_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16))

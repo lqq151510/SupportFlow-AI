@@ -6,10 +6,17 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
-from supportflow.ticket.domain.models import NewTicket, Ticket, TicketCategory, TicketStatus
+from supportflow.ticket.domain.models import (
+    Draft,
+    DraftAuthor,
+    NewTicket,
+    Ticket,
+    TicketCategory,
+    TicketStatus,
+)
 
 
 class TicketRepositoryPort(Protocol):
@@ -44,4 +51,38 @@ class TicketRepositoryPort(Protocol):
         self, ticket_id: UUID, *, assignee_id: UUID, expected_version: int
     ) -> int | None:
         """按乐观锁转派工单，返回新版本；版本不符返回 ``None``。"""
+        ...
+
+
+class DraftRepositoryPort(Protocol):
+    """草稿版本仓储。按工单维度维护 ACTIVE/PUBLISHED/ARCHIVED 版本链。"""
+
+    def add_new_version(
+        self,
+        ticket_id: UUID,
+        *,
+        author: DraftAuthor,
+        content: str,
+        citations: list[dict[str, Any]],
+        run_id: UUID | None,
+        editor_user_id: UUID | None,
+    ) -> Draft:
+        """新增一个 ACTIVE 版本，并把此前 ACTIVE 的版本置为 ARCHIVED。
+
+        返回新建的版本；版本号按工单内单调递增。
+        """
+        ...
+
+    def find_by_id(self, draft_id: UUID) -> Draft | None: ...
+
+    def find_active(self, ticket_id: UUID) -> Draft | None: ...
+
+    def list_for_ticket(self, ticket_id: UUID) -> list[Draft]: ...
+
+    def publish(self, draft_id: UUID, *, published_by: UUID) -> Draft | None:
+        """把 ACTIVE 草稿发布为正式回复。仅 ACTIVE 可发布；返回发布后的草稿。
+
+        并发发布时只有第一个成功（条件更新 ``WHERE status = 'ACTIVE'``），
+        其余返回 ``None`` —— 这是「至多一次发布」的保证，不靠「先查后写」。
+        """
         ...

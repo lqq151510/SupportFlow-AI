@@ -10,12 +10,19 @@ from sqlalchemy.orm import Session
 
 from supportflow.shared.clock import utcnow
 from supportflow.ticket.domain.models import (
+    Draft,
+    DraftAuthor,
+    DraftStatus,
     NewTicket,
     Ticket,
     TicketCategory,
     TicketStatus,
 )
-from supportflow.ticket.infrastructure.tables import TICKET_NO_SEQUENCE, TicketRow
+from supportflow.ticket.infrastructure.tables import (
+    TICKET_NO_SEQUENCE,
+    DraftRow,
+    TicketRow,
+)
 
 
 def _to_ticket(row: TicketRow) -> Ticket:
@@ -142,3 +149,103 @@ class SqlAlchemyTicketRepository:
         if status is not None:
             stmt = stmt.where(TicketRow.status == status.value)
         return stmt
+
+
+def _to_draft(row: DraftRow) -> Draft:
+    return Draft(
+        id=row.id,
+        ticket_id=row.ticket_id,
+        version=row.version,
+        author=DraftAuthor(row.author),
+        content=row.content,
+        citations=[dict(item) for item in row.citations] if row.citations else [],
+        status=DraftStatus(row.status),
+        editor_user_id=row.editor_user_id,
+        run_id=row.run_id,
+        created_at=row.created_at,
+        published_at=row.published_at,
+        published_by=row.published_by,
+    )
+
+
+class SqlAlchemyDraftRepository:
+    """草稿版本仓储。同一事务内新增版本会把旧 ACTIVE 版本归档。"""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def _next_version(self, ticket_id: UUID) -> int:
+        current = self._session.scalar(
+            select(func.coalesce(func.max(DraftRow.version), 0)).where(
+                DraftRow.ticket_id == ticket_id
+            )
+        )
+        return int(current or 0) + 1
+
+    def add_new_version(
+        self,
+        ticket_id: UUID,
+        *,
+        author: DraftAuthor,
+        content: str,
+        citations: list[dict[str, Any]],
+        run_id: UUID | None,
+        editor_user_id: UUID | None,
+    ) -> Draft:
+        # 同一事务内把当前 ACTIVE 版本归档，避免两张 ACTIVE 并存。
+        self._session.execute(
+            update(DraftRow)
+            .where(DraftRow.ticket_id == ticket_id, DraftRow.status == DraftStatus.ACTIVE.value)
+            .values(status=DraftStatus.ARCHIVED.value, updated_at=utcnow())
+        )
+        row = DraftRow(
+            ticket_id=ticket_id,
+            version=self._next_version(ticket_id),
+            author=author.value,
+            content=content,
+            citations=citations,
+            status=DraftStatus.ACTIVE.value,
+            editor_user_id=editor_user_id,
+            run_id=run_id,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return _to_draft(row)
+
+    def find_by_id(self, draft_id: UUID) -> Draft | None:
+        row = self._session.get(DraftRow, draft_id)
+        return _to_draft(row) if row else None
+
+    def find_active(self, ticket_id: UUID) -> Draft | None:
+        row = self._session.scalar(
+            select(DraftRow)
+            .where(DraftRow.ticket_id == ticket_id, DraftRow.status == DraftStatus.ACTIVE.value)
+            .order_by(DraftRow.version.desc())
+        )
+        return _to_draft(row) if row else None
+
+    def list_for_ticket(self, ticket_id: UUID) -> list[Draft]:
+        rows = self._session.scalars(
+            select(DraftRow)
+            .where(DraftRow.ticket_id == ticket_id)
+            .order_by(DraftRow.version.asc())
+        ).all()
+        return [_to_draft(row) for row in rows]
+
+    def publish(self, draft_id: UUID, *, published_by: UUID) -> Draft | None:
+        # 条件更新：只有 ACTIVE 的草稿能被发布；并发发布只有第一个成功。
+        now = utcnow()
+        result = self._session.execute(
+            update(DraftRow)
+            .where(DraftRow.id == draft_id, DraftRow.status == DraftStatus.ACTIVE.value)
+            .values(
+                status=DraftStatus.PUBLISHED.value,
+                published_at=now,
+                published_by=published_by,
+                updated_at=now,
+            )
+            .returning(DraftRow.id)
+        )
+        if result.one_or_none() is None:
+            return None
+        return self.find_by_id(draft_id)

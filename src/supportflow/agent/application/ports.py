@@ -13,7 +13,7 @@ Repository 或内部 Service —— 见 AGENTS.md §3。
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from supportflow.identity.domain.models import Principal
@@ -73,6 +73,17 @@ class TicketGatewayPort(Protocol):
 
     def assign_category(self, ticket_id: UUID, category: TicketCategory) -> None:
         """写入分类结果。同一分类重复写入是幂等的。"""
+        ...
+
+    def save_draft(
+        self,
+        *,
+        ticket_id: UUID,
+        run_id: UUID,
+        content: str,
+        citations: list[dict[str, Any]],
+    ) -> None:
+        """把一次运行的产出落为草稿。与分类写入、DRAFT_CREATED 事件处于同一事务。"""
         ...
 
 
