@@ -7,32 +7,29 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "types": "openapi-typescript ../docs/contracts/openapi.json -o src/api/types.ts",
     "test:unit": "vitest run",
     "test:e2e": "playwright test --grep-invert @demo",
     "test:e2e:macos": "PLAYWRIGHT_CHANNEL=chrome playwright test --grep-invert @demo",
-    "test:demo": "playwright test --grep @demo --workers=1",
-    "tauri": "tauri",
-    "build:desktop-backend": "../script/build_desktop_backend.sh",
-    "build:app": "npm run build:desktop-backend && tauri build",
-    "build:dmg": "npm run build:desktop-backend && tauri build --bundles dmg"
+    "test:demo": "playwright test --grep @demo --workers=1"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@vitejs/plugin-react": "latest",
     "lucide-react": "^1.30.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "vite": "latest"
+    "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^30.0.1",
+    "openapi-typescript": "^7.4.0",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.10"
+    "vite": "^5.4.0",
+    "vitest": "^2.1.8"
   }
 }
