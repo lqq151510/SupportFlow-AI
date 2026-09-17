@@ -10,6 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
     private final ModelConfigPort configs; private final ModelSecretPort secrets; private final ModelUrlPolicy urls;
     public CreateModelConfigService(ModelConfigPort configs, ModelSecretPort secrets, ModelUrlPolicy urls) { this.configs=configs; this.secrets=secrets; this.urls=urls; }
     @Transactional public ModelConfig create(Long tenantId,String name,ModelProtocol protocol,String baseUrl,String modelName,String apiKey,boolean isDefault) {
-        urls.validate(baseUrl); return configs.save(tenantId,name,protocol,baseUrl,modelName,secrets.encrypt(apiKey),isDefault);
+        return create(tenantId, name, protocol, baseUrl, modelName, apiKey, isDefault, false);
+    }
+
+    @Transactional public ModelConfig create(Long tenantId,String name,ModelProtocol protocol,String baseUrl,String modelName,String apiKey,boolean isDefault,boolean isKnowledgeDefault) {
+        urls.validate(baseUrl); return configs.save(tenantId,name,protocol,baseUrl,modelName,secrets.encrypt(apiKey),isDefault,isKnowledgeDefault);
     }
 }

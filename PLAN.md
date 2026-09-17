@@ -511,9 +511,9 @@ SSE 事件固定为：
 
 ### 第 8 周：质量、压测和简历交付
 
-- 已验收：后端 115/115 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 93.65%，分支覆盖率 75.38%，并由 Maven `verify` 强制执行 85%/75% 门禁（2026-08-13）。SLA 去重标记与 Outbox 原子提交，真实 RocketMQ 测试验证绝对截止时间前不投递、到期后送达；模型 SSE 客户端使用 Reactor Netty，超时取消不会产生 JDK HTTP 客户端的异步伪错误日志；测试 JVM 显式预加载 Mockito Agent，并与 JaCoCo Agent 共存，避免依赖未来 JDK 禁止的运行时自挂载。
-- 已验收：前端 Vitest 4/4、TypeScript/Vite 生产构建通过；Playwright 管理端与消费者到坐席闭环 2/2 通过，180.08 秒演示录屏场景通过。
-- 已验收：完整 Docker Compose 启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL 23 个 Flyway 迁移全部成功、RocketMQ Topic 路由可用。
+- 当前 Java 复验（2026-09-17）：后端 152/152 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 91.92%（1980/2154）、分支覆盖率 75.53%（716/948），Maven `verify` 强制执行 85%/75% 门禁。新增检索评测运行持久化为 Flyway V25，离线评测通过知识模块公开边界调用相同的租户范围 RRF 检索，不写入客户检索审计。
+- 当前 Java 复验（2026-09-17）：前端 Vitest 13/13、TypeScript/Vite 生产构建通过；Playwright 管理端知识库/模型配置与消费者到坐席闭环 2/2 通过。E2E 等待会话落位完成后再导航，避免登录后的异步首页初始化产生测试竞态。
+- 当前 Java 复验（2026-09-17）：独立 Compose 项目 `supportflow-java` 完整启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL Flyway V1～V25 全部成功、RocketMQ Topic 路由可用；MinIO 使用隔离宿主机端口 19000/19001，未影响已有容器。
 - 已验收：k6 Mock Model 场景完成 100 个并发 SSE 会话压测，建连 P95 为 46.11ms、错误率 0%。
 - 已验收：非模型普通 API 在 100 RPS 下 P95 为 3.84ms、错误率 0%。
 - 已验收：Gitleaks 扫描完整 Git 历史无泄漏，npm 生产依赖审计 0 漏洞，Dependency Review 与 CodeQL 已接入 CI。

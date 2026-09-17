@@ -6,6 +6,23 @@
 
 ## 后端质量门禁
 
+### 当前 Java 支线复验（2026-09-17）
+
+执行：
+
+```zsh
+mvn -B -f backend/pom.xml verify
+```
+
+- 测试：152；失败、错误、跳过均为 0。
+- JaCoCo：行覆盖率 91.92%（1980/2154），分支覆盖率 75.53%（716/948）；继续满足 Maven 中 85% / 75% 的强制门禁。
+- Testcontainers：真实 MySQL、Redis、Elasticsearch 和 RocketMQ 场景均参与本次 `verify`。
+- Flyway：H2 测试环境与完整 Compose MySQL 环境均已执行 V1～V25；V25 保存租户隔离的检索评测用例、运行和逐用例结果。
+- 前端：Vitest 13/13、`tsc -b && vite build` 通过；真实浏览器 Playwright 管理端与消费者到坐席闭环为 2/2。
+- Compose：以独立项目名 `supportflow-java` 启动，Spring Boot 健康端点返回 `UP`，前端 HTTP 200，Elasticsearch `green`，Redis `PONG`，RocketMQ `support-domain-events` 可用。MinIO 宿主机端口使用 19000/19001，避免影响同机既有服务。
+
+这轮仅更新当前 Java 支线的证据；下方 2026-08 的记录保留为当时的历史验收快照。
+
 执行：
 
 ```zsh

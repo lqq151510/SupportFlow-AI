@@ -181,6 +181,41 @@ paths:
       summary: 重建当前租户知识库索引
       parameters: [{$ref: '#/components/parameters/KnowledgeBaseId'}]
       responses: {'200': {description: 重建结果}}
+  /api/v1/admin/evaluations/cases:
+    get:
+      tags: [evaluation]
+      summary: 查询当前租户知识库的检索评测用例
+      parameters: [{$ref: '#/components/parameters/EvaluationKnowledgeBaseId'}]
+      responses: {'200': {description: 评测用例列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/EvaluationCase'}}}}}}
+    post:
+      tags: [evaluation]
+      summary: 创建检索评测用例
+      parameters: [{$ref: '#/components/parameters/EvaluationKnowledgeBaseId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateEvaluationCaseRequest'}}}}
+      responses: {'201': {description: 已创建, content: {application/json: {schema: {$ref: '#/components/schemas/EvaluationCase'}}}}, '400': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/evaluations/cases/{caseId}:
+    delete:
+      tags: [evaluation]
+      summary: 删除当前租户知识库的检索评测用例
+      parameters: [{$ref: '#/components/parameters/EvaluationKnowledgeBaseId'}, {name: caseId, in: path, required: true, schema: {type: string}}]
+      responses: {'204': {description: 已删除}, '400': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/evaluations/runs:
+    get:
+      tags: [evaluation]
+      summary: 查询当前租户知识库的检索评测运行记录
+      parameters: [{$ref: '#/components/parameters/EvaluationKnowledgeBaseId'}]
+      responses: {'200': {description: 运行记录列表, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/EvaluationRun'}}}}}}
+    post:
+      tags: [evaluation]
+      summary: 对当前启用的评测用例运行真实租户范围的检索评测
+      parameters: [{$ref: '#/components/parameters/EvaluationKnowledgeBaseId'}]
+      responses: {'201': {description: 已完成, content: {application/json: {schema: {$ref: '#/components/schemas/EvaluationRunDetails'}}}}, '400': {$ref: '#/components/responses/Problem'}}
+  /api/v1/admin/evaluations/runs/{runId}:
+    get:
+      tags: [evaluation]
+      summary: 查询一条检索评测运行及逐用例结果
+      parameters: [{name: runId, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: 运行详情, content: {application/json: {schema: {$ref: '#/components/schemas/EvaluationRunDetails'}}}}, '400': {$ref: '#/components/responses/Problem'}}
   /api/v1/admin/models:
     get:
       tags: [models]
@@ -211,6 +246,7 @@ components:
     GenerationId: {name: generationId, in: path, required: true, schema: {type: string}}
     TicketId: {name: ticketId, in: path, required: true, schema: {type: string}}
     KnowledgeBaseId: {name: knowledgeBaseId, in: path, required: true, schema: {type: string}}
+    EvaluationKnowledgeBaseId: {name: knowledgeBaseId, in: query, required: true, schema: {type: string}}
     IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1}}
   responses:
     Problem: {description: RFC 9457 problem response, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
@@ -237,7 +273,12 @@ components:
     CreateKnowledgeBaseRequest: {type: object, required: [name], properties: {name: {type: string}, description: {type: string}}}
     KnowledgeBase: {type: object, properties: {id: {type: string}, name: {type: string}, description: {type: string}, status: {type: string}, version: {type: integer, format: int64, minimum: 1}}}
     KnowledgeDocument: {type: object, properties: {id: {type: string}, fileName: {type: string}, contentHash: {type: string}, status: {type: string}}}
-    CreateModelConfigRequest: {type: object, required: [name, protocol, baseUrl, modelName, apiKey], properties: {name: {type: string}, protocol: {type: string, enum: [OPENAI_COMPATIBLE, ANTHROPIC_MESSAGES]}, baseUrl: {type: string, format: uri}, modelName: {type: string}, apiKey: {type: string, writeOnly: true}, isDefault: {type: boolean}}}
+    CreateModelConfigRequest: {type: object, required: [name, protocol, baseUrl, modelName, apiKey], properties: {name: {type: string}, protocol: {type: string, enum: [OPENAI_COMPATIBLE, ANTHROPIC_MESSAGES]}, baseUrl: {type: string, format: uri}, modelName: {type: string}, apiKey: {type: string, writeOnly: true}, isDefault: {type: boolean}, isKnowledgeDefault: {type: boolean}}}
     ModelProbeRequest: {type: object, required: [baseUrl, apiKey], properties: {baseUrl: {type: string, format: uri}, apiKey: {type: string, writeOnly: true}}}
-    ModelConfig: {type: object, properties: {id: {type: string}, name: {type: string}, protocol: {type: string}, baseUrl: {type: string}, modelName: {type: string}, isDefault: {type: boolean}}}
+    ModelConfig: {type: object, properties: {id: {type: string}, name: {type: string}, protocol: {type: string}, baseUrl: {type: string}, modelName: {type: string}, isDefault: {type: boolean}, isKnowledgeDefault: {type: boolean}}}
+    CreateEvaluationCaseRequest: {type: object, required: [question, expectedDocumentId], properties: {question: {type: string, minLength: 1, maxLength: 2000}, expectedDocumentId: {type: string}, category: {type: string, maxLength: 80}}}
+    EvaluationCase: {type: object, properties: {id: {type: string}, knowledgeBaseId: {type: string}, question: {type: string}, expectedDocumentId: {type: string}, category: {type: string}, enabled: {type: boolean}, createdAt: {type: string, format: date-time}}}
+    EvaluationRun: {type: object, properties: {id: {type: string}, knowledgeBaseId: {type: string}, knowledgeBaseVersion: {type: integer, format: int64}, status: {type: string, enum: [RUNNING, COMPLETED]}, totalCases: {type: integer}, evaluatedCases: {type: integer}, failedCases: {type: integer}, recallAt1: {type: number, format: double, nullable: true}, recallAt3: {type: number, format: double, nullable: true}, recallAt6: {type: number, format: double, nullable: true}, startedAt: {type: string, format: date-time}, completedAt: {type: string, format: date-time, nullable: true}}}
+    EvaluationResult: {type: object, properties: {id: {type: string}, caseId: {type: string}, status: {type: string, enum: [COMPLETED, FAILED]}, expectedDocumentId: {type: string}, hitRank: {type: integer, nullable: true}, topScore: {type: number, format: double, nullable: true}, latencyMs: {type: integer, format: int64, nullable: true}, failureCode: {type: string, nullable: true}, createdAt: {type: string, format: date-time}}}
+    EvaluationRunDetails: {type: object, properties: {run: {$ref: '#/components/schemas/EvaluationRun'}, results: {type: array, items: {$ref: '#/components/schemas/EvaluationResult'}}}}
     Problem: {type: object, properties: {type: {type: string, format: uri}, title: {type: string}, status: {type: integer}, detail: {type: string}, code: {type: string}, requestId: {type: string}}}

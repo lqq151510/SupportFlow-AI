@@ -3,7 +3,9 @@ package com.lqq.supportflow.model.infrastructure.security;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.function.Supplier;
 import com.lqq.supportflow.model.domain.ModelSecretPort;
+import com.lqq.supportflow.shared.LocalSecureStorageUnavailableException;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -14,6 +16,15 @@ public class ApiKeyCipher implements ModelSecretPort {
 
     private static final int NONCE_BYTES = 12;
     private final SecureRandom random = new SecureRandom();
+    private final Supplier<String> masterKeyProvider;
+
+    public ApiKeyCipher() {
+        this(() -> System.getenv("MODEL_SECRET_MASTER_KEY"));
+    }
+
+    public ApiKeyCipher(Supplier<String> masterKeyProvider) {
+        this.masterKeyProvider = masterKeyProvider;
+    }
 
     public String encrypt(String plaintext, String masterKeyBase64) {
         try {
@@ -29,15 +40,11 @@ public class ApiKeyCipher implements ModelSecretPort {
         } catch (Exception exception) { throw new IllegalStateException("cannot encrypt model API key", exception); }
     }
     @Override public String encrypt(String plaintext) {
-        String masterKey = System.getenv("MODEL_SECRET_MASTER_KEY");
-        if (masterKey == null || masterKey.isBlank()) throw new IllegalStateException("MODEL_SECRET_MASTER_KEY is required");
-        return encrypt(plaintext, masterKey);
+        return encrypt(plaintext, requiredMasterKey());
     }
 
     @Override public String decrypt(String ciphertext) {
-        String masterKey = System.getenv("MODEL_SECRET_MASTER_KEY");
-        if (masterKey == null || masterKey.isBlank()) throw new IllegalStateException("MODEL_SECRET_MASTER_KEY is required");
-        return decrypt(ciphertext, masterKey);
+        return decrypt(ciphertext, requiredMasterKey());
     }
 
     public String decrypt(String ciphertext, String masterKeyBase64) {
@@ -55,5 +62,11 @@ public class ApiKeyCipher implements ModelSecretPort {
         byte[] bytes = Base64.getDecoder().decode(masterKeyBase64);
         if (bytes.length != 32) throw new IllegalArgumentException("MODEL_SECRET_MASTER_KEY must be a Base64-encoded 32-byte key");
         return new SecretKeySpec(bytes, "AES");
+    }
+
+    private String requiredMasterKey() {
+        String masterKey = masterKeyProvider.get();
+        if (masterKey == null || masterKey.isBlank()) throw new LocalSecureStorageUnavailableException();
+        return masterKey;
     }
 }

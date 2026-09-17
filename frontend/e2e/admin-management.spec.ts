@@ -12,6 +12,7 @@ test('first-time admin creates a workspace, then manages knowledge and model con
   await page.getByLabel('邮箱').fill(email);
   await page.getByLabel('密码').fill(password);
   await page.getByRole('button', {name: '创建并登录'}).click();
+  await expect(page.getByRole('heading', {name: '工作台总览'})).toBeVisible();
 
   await page.getByRole('button', {name: '知识库', exact: true}).click();
   await expect(page.getByRole('heading', {name: '知识库管理'})).toBeVisible();

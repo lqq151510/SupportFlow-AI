@@ -33,7 +33,7 @@ test('consumer handoff is claimed, documented, resolved and closed by an agent',
   await agentPage.getByLabel('租户代码').fill(tenantCode);
   await agentPage.getByLabel('邮箱').fill(adminEmail);
   await agentPage.getByLabel('密码').fill(password);
-  await agentPage.getByRole('button', {name: '登录'}).click();
+  await agentPage.getByRole('button', {name: '登录', exact: true}).click();
   const ticketSearch = agentPage.getByRole('combobox', {name: '全局搜索工单'});
   await ticketSearch.click();
   await expect(ticketSearch).toBeFocused();

@@ -7,6 +7,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.authentication.BadCredentialsException;
 import com.lqq.supportflow.shared.ConflictException;
+import com.lqq.supportflow.shared.LocalSecureStorageUnavailableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -36,6 +37,15 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "invalid credentials");
         problem.setType(URI.create("https://supportflow.dev/problems/invalid-credentials"));
         problem.setProperty("code", "INVALID_CREDENTIALS");
+        problem.setProperty("requestId", request.getHeader(RequestIdFilter.REQUEST_ID_HEADER));
+        return problem;
+    }
+
+    @ExceptionHandler(LocalSecureStorageUnavailableException.class)
+    ProblemDetail handleLocalSecureStorageUnavailable(LocalSecureStorageUnavailableException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "local secure storage is unavailable");
+        problem.setType(URI.create("https://supportflow.dev/problems/local-secure-storage-unavailable"));
+        problem.setProperty("code", "LOCAL_SECURE_STORAGE_UNAVAILABLE");
         problem.setProperty("requestId", request.getHeader(RequestIdFilter.REQUEST_ID_HEADER));
         return problem;
     }

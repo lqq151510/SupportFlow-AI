@@ -49,7 +49,7 @@ public class AdminModelConfigController {
             @AuthenticationPrincipal AuthenticatedPrincipal principal,
             @Valid @RequestBody CreateModelConfigRequest request) {
         ModelConfig result = service.create(principal.tenantId(), request.name(), request.protocol(),
-                request.baseUrl(), request.modelName(), request.apiKey(), request.isDefault());
+                request.baseUrl(), request.modelName(), request.apiKey(), request.isDefault(), request.isKnowledgeDefault());
         return ResponseEntity.created(URI.create("/api/v1/admin/models/" + result.id())).body(result);
     }
 

@@ -42,6 +42,23 @@ public class SearchKnowledgeBaseService {
     public KnowledgeSearchResult search(Long tenantId, Long knowledgeBaseId, String query) {
         KnowledgeBase knowledgeBase = bases.findById(tenantId, knowledgeBaseId)
                 .orElseThrow(() -> new IllegalArgumentException("knowledge base does not belong to tenant"));
+        List<KnowledgeCitation> citations = retrieve(tenantId, knowledgeBaseId, query);
+        return new KnowledgeSearchResult(
+                audits.save(tenantId, knowledgeBaseId, knowledgeBase.version(), query, citations), citations);
+    }
+
+    /**
+     * Runs the same tenant-scoped hybrid retrieval used by customer requests without creating a
+     * customer-facing search audit record. Offline evaluation uses this boundary so its cases do
+     * not pollute operational search history.
+     */
+    public KnowledgeSearchResult searchUntracked(Long tenantId, Long knowledgeBaseId, String query) {
+        bases.findById(tenantId, knowledgeBaseId)
+                .orElseThrow(() -> new IllegalArgumentException("knowledge base does not belong to tenant"));
+        return new KnowledgeSearchResult(null, retrieve(tenantId, knowledgeBaseId, query));
+    }
+
+    private List<KnowledgeCitation> retrieve(Long tenantId, Long knowledgeBaseId, String query) {
         List<RankedKnowledgeChunk> keyword = index.keywordSearch(tenantId, knowledgeBaseId, query, CANDIDATE_LIMIT);
         List<float[]> vectors = embeddings.embed(tenantId, List.of(query));
         if (vectors.size() != 1) throw new IllegalArgumentException("query embedding is invalid");
@@ -60,8 +77,7 @@ public class SearchKnowledgeBaseService {
             citations.add(new KnowledgeCitation(candidate.chunk.chunkId(), candidate.chunk.documentId(),
                     candidate.chunk.content(), candidate.score, position + 1));
         }
-        return new KnowledgeSearchResult(
-                audits.save(tenantId, knowledgeBaseId, knowledgeBase.version(), query, citations), citations);
+        return citations;
     }
 
     private void merge(Map<Long, Candidate> combined, List<RankedKnowledgeChunk> results) {

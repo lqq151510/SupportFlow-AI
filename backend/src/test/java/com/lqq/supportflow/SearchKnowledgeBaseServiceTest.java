@@ -1,6 +1,7 @@
 package com.lqq.supportflow;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import com.lqq.supportflow.knowledge.application.SearchKnowledgeBaseService;
@@ -49,5 +50,36 @@ class SearchKnowledgeBaseServiceTest {
         KnowledgeSearchResult result = new SearchKnowledgeBaseService(bases, index, embeddings, audits, 0.02).search(1L, 2L, "weak");
 
         assertThat(result.citations()).isEmpty();
+    }
+
+    @Test
+    void runsEvaluationRetrievalWithoutWritingCustomerSearchAudit() {
+        when(bases.findById(1L, 2L)).thenReturn(Optional.of(new KnowledgeBase(2L, "Policies", "", "ACTIVE", 3L)));
+        when(index.keywordSearch(1L, 2L, "refund", 20)).thenReturn(List.of(new RankedKnowledgeChunk(10L, 100L, "Refund policy", 1)));
+        when(embeddings.embed(1L, List.of("refund"))).thenReturn(List.of(new float[]{0.1f}));
+        when(index.vectorSearch(eq(1L), eq(2L), any(float[].class), eq(20))).thenReturn(List.of());
+
+        KnowledgeSearchResult result = new SearchKnowledgeBaseService(bases, index, embeddings, audits, 0.015)
+                .searchUntracked(1L, 2L, "refund");
+
+        assertThat(result.searchId()).isNull();
+        assertThat(result.citations()).singleElement().satisfies(citation -> assertThat(citation.documentId()).isEqualTo(100L));
+        verifyNoInteractions(audits);
+    }
+
+    @Test
+    void rejectsInvalidSearchConfigurationAndEmbeddingResponses() {
+        assertThatThrownBy(() -> new SearchKnowledgeBaseService(bases, index, embeddings, audits, -0.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("minimum RRF score cannot be negative");
+
+        when(bases.findById(1L, 2L)).thenReturn(Optional.of(new KnowledgeBase(2L, "Policies", "", "ACTIVE", 3L)));
+        when(index.keywordSearch(1L, 2L, "refund", 20)).thenReturn(List.of());
+        when(embeddings.embed(1L, List.of("refund"))).thenReturn(List.of());
+
+        assertThatThrownBy(() -> new SearchKnowledgeBaseService(bases, index, embeddings, audits, 0.015)
+                .searchUntracked(1L, 2L, "refund"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("query embedding is invalid");
     }
 }
