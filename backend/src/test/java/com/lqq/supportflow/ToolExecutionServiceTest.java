@@ -1,6 +1,7 @@
 package com.lqq.supportflow;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -50,5 +51,31 @@ class ToolExecutionServiceTest {
                 eq("refund.request for order DEMO-001"),
                 eq(new ApprovalRequestDetails("DEMO-001", new BigDecimal("88.00"), "CNY",
                         "eligible=true; reason=within window")), eq(null));
+    }
+
+    @Test
+    void executesTheOtherReadOnlyTools() {
+        CommerceSupportToolService commerce = mock(CommerceSupportToolService.class);
+        ManageApprovalService approvals = mock(ManageApprovalService.class);
+        when(commerce.orderLookup(1L, 2L, "DEMO-001"))
+                .thenReturn(new CommerceToolResult("order.lookup", Map.of("status", "PAID")));
+        when(commerce.refundEligibility(1L, 2L, "DEMO-001"))
+                .thenReturn(new CommerceToolResult("refund.checkEligibility", Map.of("eligible", true)));
+        ToolExecutionService service = new ToolExecutionService(commerce, approvals);
+
+        assertThat(service.execute(1L, 2L, "order.lookup", Map.of("orderNo", "DEMO-001")).status()).isEqualTo("COMPLETED");
+        assertThat(service.execute(1L, 2L, "refund.checkEligibility", Map.of("orderNo", "DEMO-001")).status())
+                .isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void rejectsUnsupportedToolsAndBlankRequiredArguments() {
+        ToolExecutionService service = new ToolExecutionService(mock(CommerceSupportToolService.class),
+                mock(ManageApprovalService.class));
+
+        assertThatThrownBy(() -> service.execute(1L, 2L, "order.lookup", Map.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("tool argument orderNo is required");
+        assertThatThrownBy(() -> service.execute(1L, 2L, "other.tool", Map.of("orderNo", "DEMO-001")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("unsupported support tool");
     }
 }
