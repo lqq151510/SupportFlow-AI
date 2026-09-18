@@ -9,7 +9,7 @@ RAG 的 50 条冻结评测集、质量门槛与适用边界见 [RAG 评测基线
 ## 当前基线
 
 - 后端：Java 21、Spring Boot、Spring Security、Spring Modulith、MyBatis-Plus、Flyway、Actuator。
-- 前端：React、TypeScript、Vite。
+- 前端：Vue 3、TypeScript、Vite。
 - 本地基础设施：MySQL、Redis、Elasticsearch、MinIO、RocketMQ。
 - 已完成租户管理员和消费者注册、JWT 登录/刷新/登出、改密、成员管理与角色访问控制。
 - 已完成 refresh token 轮换与撤销、请求 ID、RFC 9457 错误响应、Spring Modulith 与 ArchUnit 架构校验。

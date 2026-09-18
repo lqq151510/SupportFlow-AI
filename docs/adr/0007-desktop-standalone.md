@@ -2,7 +2,7 @@
 
 ## 决策
 
-桌面客户端采用 Tauri 2.0 承载既有 React 前端，并通过 bundle resources 内嵌一个由 jlink 运行时 + jpackage app-image 组装的 `SupportFlowBackend.app` 辅助进程：客户端启动时检测 8080 健康端点，复用已在运行的后端或拉起内嵌进程，退出时只停止自己启动的进程。数据落在 `~/Library/Application Support/SupportFlow AI/`（持久化 H2，`desktop` profile），模型加密主密钥存 macOS Keychain。
+桌面客户端采用 Tauri 2.0 承载既有 Vue 3 前端，并通过 bundle resources 内嵌一个由 jlink 运行时 + jpackage app-image 组装的 `SupportFlowBackend.app` 辅助进程：客户端启动时检测 8080 健康端点，复用已在运行的后端或拉起内嵌进程，退出时只停止自己启动的进程。数据落在 `~/Library/Application Support/SupportFlow AI/`（持久化 H2，`desktop` profile），模型加密主密钥存 macOS Keychain。
 
 单机形态下中间件按既定端口降级，均不改变业务语义：
 

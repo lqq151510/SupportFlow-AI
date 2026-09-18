@@ -29,7 +29,7 @@ flowchart LR
 - AI：统一 `ModelGateway`，通过 API 支持 `OPENAI_COMPATIBLE` 和 `ANTHROPIC_MESSAGES`；Embedding 首版使用 OpenAI-compatible 协议。
 - 数据：MySQL 8.4 LTS、Redis 7、Elasticsearch 8、MinIO。
 - 消息：RocketMQ 5，使用事务外盒、延时消息、消费幂等和死信队列。
-- 前端：React 19、TypeScript、Vite，一个应用内提供消费者端和坐席端路由。
+- 前端：Vue 3、TypeScript、Vite，一个应用内提供消费者端和坐席端视图。
 - 测试：JUnit 5、Mockito、Testcontainers、WireMock、Playwright、k6。
 - 可观测性：Micrometer、Prometheus、Grafana、结构化日志和全链路 `requestId`。
 
@@ -416,7 +416,7 @@ SSE 事件固定为：
 
 ## 前端设计
 
-同一个 React 应用按角色分区。
+同一个 Vue 3 应用按角色分区。
 
 消费者端：
 
@@ -513,6 +513,7 @@ SSE 事件固定为：
 
 - 当前 Java 复验（2026-09-17）：后端 152/152 测试通过（含真实 MySQL、Redis、Elasticsearch、RocketMQ Testcontainers）；JaCoCo 行覆盖率 91.92%（1980/2154）、分支覆盖率 75.53%（716/948），Maven `verify` 强制执行 85%/75% 门禁。新增检索评测运行持久化为 Flyway V25，离线评测通过知识模块公开边界调用相同的租户范围 RRF 检索，不写入客户检索审计。
 - 当前 Java 复验（2026-09-17）：前端 Vitest 13/13、TypeScript/Vite 生产构建通过；Playwright 管理端知识库/模型配置与消费者到坐席闭环 2/2 通过。E2E 等待会话落位完成后再导航，避免登录后的异步首页初始化产生测试竞态。
+- 前端迁移（2026-09-17）：`frontend/` 由 React 19 迁移到 Vue 3.5（`@vitejs/plugin-vue` 6、`@lucide/vue` 1.46、`@vue/test-utils` 2.5），保留 Tauri 2 桌面壳、手写 `styles.css` 与全部 class/aria/role 语义，故既有 Playwright 选择器无需改动即可复用。验收：Vitest **13/13**、`vue-tsc -b` 类型门禁（覆盖 16 个 `.vue`，已用故意类型错误反证有效）与 Vite 生产构建通过；在 `supportflow-java` Compose 全栈（nginx + 真实 MySQL/Redis/ES/RocketMQ 后端）上 `npm run test:e2e` **2/2 通过**（管理端 3.1s、消费者到坐席 13.8s）；单 worker 重复 3 次稳定 6.5–7.0s。生产包 158.93 kB JS（gzip 55.15 kB）+ 33.68 kB CSS。未引入 `vue-router`，仍沿用原有的单壳 `page` 状态切换，避免改变 URL 影响既有 E2E 与桌面端入口。
 - 当前 Java 复验（2026-09-17）：独立 Compose 项目 `supportflow-java` 完整启动，后端健康为 `UP`、前端 200、Elasticsearch green、Redis PONG、MySQL Flyway V1～V25 全部成功、RocketMQ Topic 路由可用；MinIO 使用隔离宿主机端口 19000/19001，未影响已有容器。
 - 已验收：k6 Mock Model 场景完成 100 个并发 SSE 会话压测，建连 P95 为 46.11ms、错误率 0%。
 - 已验收：非模型普通 API 在 100 RPS 下 P95 为 3.84ms、错误率 0%。
