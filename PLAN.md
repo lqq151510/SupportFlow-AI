@@ -521,6 +521,8 @@ SSE 事件固定为：
 - 已升级：CI 密钥扫描使用 Gitleaks Action v3（Node.js 24）并固定 Gitleaks 8.30.1，消除 Node.js 20 弃用风险且保持原有扫描输入、输出和行为。
 - 已补齐 OpenAPI、架构图、ER 图、演示数据、测试/性能报告、故障演练脚本、简历项目描述和 180.08 秒演示录像。
 - 已验收：Redis 与 RocketMQ Broker 故障演练均确认停机路径并自动恢复，恢复后后端健康仍为 `UP`；当前 HEAD 的最终门禁通过后创建 Git 标签 `v1.0.1-demo`，旧 `v1.0.0-demo` 保留为历史快照。
+- 桌面双平台交付：Tauri 使用平台配置分别内嵌 macOS `.app` 与 Windows app-image；CI 在 macOS 14 构建并校验 DMG，在 Windows runner 构建并校验 MSI 与 NSIS。系统凭据边界分别为 macOS Keychain 与 Windows Credential Manager。
+- 最终标签采用不可变递增策略：保留 `v1.0.0-demo`、`v1.0.1-demo` 的历史指针，当前双平台发行在 `master` 门禁通过后创建 `v1.0.2-demo`，禁止强制移动已有标签。
 
 ## 最终验收场景
 

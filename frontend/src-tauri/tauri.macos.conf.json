@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "resources": {
+      "../../backend/target/desktop/SupportFlowBackend.app": "SupportFlowBackend.app"
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  }
+}

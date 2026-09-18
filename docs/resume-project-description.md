@@ -13,7 +13,7 @@ SupportFlow AI 是面向电商售后的多租户全栈 AI 客服平台，覆盖�
 - 使用 Spring Modulith 与 Clean Architecture 构建模块化单体，按认证上下文统一派生 `tenantId`，并在 MySQL、Redis、Elasticsearch 和消息事件中实现多租户隔离。
 - 实现 OpenAI-compatible / Anthropic 双模型协议、RAG 混合检索与 SSE 断线续传；证据不足或模型失败时自动转人工，不生成无依据回复。
 - 通过事务 Outbox、RocketMQ 重试/DLQ、消费账本和业务幂等键保证审批后退款/补偿动作可靠且不重复执行。
-- 完成 macOS 桌面单机客户端（Tauri 2.0 + Rust）：内嵌 jlink/jpackage 后端 sidecar、Keychain 管理模型加密主密钥、启动失败可从登录页重试，并按中间件降级矩阵收敛单机版能力边界（见 ADR 0007）。
+- 完成 macOS/Windows 桌面单机客户端（Tauri 2.0 + Rust）：内嵌 jlink/jpackage 后端 sidecar，以 Keychain/Credential Manager 管理模型加密主密钥，CI 原生构建 DMG、MSI 与 NSIS 安装包，并按中间件降级矩阵收敛单机版能力边界（见 ADR 0007）。
 - 完成消费者与坐席 Vue 3 工作台、Playwright 端到端流程、Testcontainers 基础设施测试和 k6 性能门禁；后端 JaCoCo 行/分支覆盖率达到计划阈值。
 
 ## 面试展开要点

@@ -1,7 +1,7 @@
 {
   "name": "supportflow-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,10 @@
     "test:e2e:macos": "PLAYWRIGHT_CHANNEL=chrome playwright test --grep-invert @demo",
     "test:demo": "playwright test --grep @demo --workers=1",
     "tauri": "tauri",
-    "build:desktop-backend": "../script/build_desktop_backend.sh",
+    "build:desktop-backend": "node ../script/build_desktop_backend.mjs",
     "build:app": "npm run build:desktop-backend && tauri build",
-    "build:dmg": "npm run build:desktop-backend && tauri build --bundles dmg"
+    "build:dmg": "npm run build:desktop-backend && tauri build --bundles dmg",
+    "build:windows": "npm run build:desktop-backend && tauri build --bundles nsis,msi"
   },
   "dependencies": {
     "@lucide/vue": "^1.46.0",

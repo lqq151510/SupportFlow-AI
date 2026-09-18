@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "resources": {
+      "../../backend/target/desktop/SupportFlowBackend": "SupportFlowBackend"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"]
+      }
+    }
+  }
+}

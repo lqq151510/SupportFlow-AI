@@ -32,15 +32,19 @@ npm ci
 npm run dev
 ```
 
-## macOS 本地客户端
+## 桌面客户端（macOS + Windows）
 
-Apple Silicon Mac 可以通过项目级入口同时启动本地持久化 H2 后端和 Tauri 客户端；桌面版默认不启用本地 Mock 模型，而是使用在应用内保存的云端模型 API 配置。后端未运行时，登录页会显示连接状态并提供重新检测：
+Tauri 2 桌面端同时支持 Apple Silicon macOS 与 Windows x64。安装包内嵌 Java 21 精简运行时和 Spring Boot 后端，无需用户单独安装 JDK；本地数据使用持久化 H2，模型配置通过系统凭据库保护主密钥。桌面版默认不启用 Mock 模型，需要在“模型配置”中保存真实的 OpenAI-compatible 或 Anthropic 配置。
+
+### macOS 本地开发与打包
+
+Apple Silicon Mac 可以通过项目级入口同时启动本地后端和 Tauri 客户端：
 
 ```bash
 ./script/build_and_run.sh
 ```
 
-该入口只会停止当前仓库构建出的 Tauri 进程；若 8080 端口已有健康的 SupportFlow 后端则直接复用，否则以 `desktop` profile 启动后端，并在客户端退出时一并停止。首次启动会在 macOS Keychain 创建一把仅本机可用的模型加密主密钥；后续启动读取同一把密钥，避免已保存的模型配置无法解密。登录租户管理员后，在“模型配置”中添加并测试 `OPENAI_COMPATIBLE` 或 `ANTHROPIC_MESSAGES` 的云端端点、模型名和 API Key，再设为默认模型。API Key 仅在保存/测试时提交并以 AES-GCM 加密保存，不能也不应写入 `.env`、源码或日志。H2 数据位于 `~/Library/Application Support/SupportFlow AI/data/`，后端日志位于 `~/Library/Application Support/SupportFlow AI/logs/backend.log`，均不进入仓库。
+该入口只会停止当前仓库构建出的 Tauri 进程；若 8080 端口已有健康的 SupportFlow 后端则直接复用，否则以 `desktop` profile 启动后端，并在客户端退出时一并停止。首次启动会在 macOS Keychain 创建模型加密主密钥；后续启动复用该密钥。API Key 仅在保存/测试时提交并以 AES-GCM 加密保存，不进入 `.env`、源码或日志。H2 数据位于 `~/Library/Application Support/SupportFlow AI/data/`，后端日志位于 `~/Library/Application Support/SupportFlow AI/logs/backend.log`。
 
 若要把数据存放到其他目录（例如隔离测试），可以显式覆盖：
 
@@ -54,11 +58,26 @@ SUPPORTFLOW_DESKTOP_DATA_DIR="/tmp/supportflow-desktop-test" ./script/build_and_
 ./script/build_and_run.sh --verify
 ```
 
-DMG 输出位于 `frontend/src-tauri/target/release/bundle/dmg/`。发行物内嵌本机后端辅助进程：8080 没有健康的 SupportFlow 后端时，应用会启动该进程并使用持久化 H2；关闭客户端时会停止自己启动的进程。模型仍只通过管理员保存的云端 API 配置调用。需要 MySQL、Redis、Elasticsearch、MinIO 与 RocketMQ 的完整功能时，仍使用下方 Docker Compose 环境。桌面单机形态的架构决策与中间件降级边界见 [ADR 0007](docs/adr/0007-desktop-standalone.md)。
+DMG 输出位于 `frontend/src-tauri/target/release/bundle/dmg/`。
+
+### Windows 本地打包
+
+在 Windows 11 x64、Java 21、Node.js 22 和 Rust stable 环境执行：
+
+```powershell
+npm --prefix frontend ci
+npm --prefix frontend run build:windows
+```
+
+MSI 输出位于 `frontend/src-tauri/target/release/bundle/msi/`，NSIS 安装程序位于 `frontend/src-tauri/target/release/bundle/nsis/`。Windows 首次启动时，主密钥写入 Windows Credential Manager，应用数据和日志写入系统分配的 SupportFlow AI 应用数据目录。
+
+GitHub Actions 会在独立的 macOS 14 和 Windows runner 上真实构建并上传 `supportflow-macos-dmg` 与 `supportflow-windows-installers` 两组产物。当前两个平台均为个人演示用未公证/未商业签名构建：macOS 使用 ad-hoc 签名，跨设备安装可能触发 Gatekeeper；Windows 安装包未使用受信任代码签名证书，下载后可能触发 SmartScreen。需要公开分发时，应分别增加 Apple Developer ID 公证与 Windows Authenticode 签名。
+
+发行物内嵌本机后端辅助进程：8080 没有健康的 SupportFlow 后端时，应用会启动该进程并使用持久化 H2；关闭客户端时会停止自己启动的进程。需要 MySQL、Redis、Elasticsearch、MinIO 与 RocketMQ 的完整功能时，仍使用下方 Docker Compose 环境。桌面单机形态的架构决策与中间件降级边界见 [ADR 0007](docs/adr/0007-desktop-standalone.md)。
 
 ### 签名与分发边界
 
-本项目定位为个人自用：DMG 采用 ad-hoc 签名，未购买 Apple Developer ID、未做公证。本机构建的 app 不带 `com.apple.quarantine` 扩展属性，Gatekeeper 不会拦截，直接双击即可运行。若把 DMG 交给其他 Mac，系统会因"无法验证开发者"阻止打开；临时办法是右键选择"打开"，或在接收方执行 `xattr -dr com.apple.quarantine /Applications/SupportFlow\ AI.app`。要合规分发需升级为 Developer ID 签名加公证，属增量变更，不影响现有构建链路。
+本项目当前定位为个人作品集演示：macOS DMG 采用 ad-hoc 签名，Windows MSI/NSIS 未做 Authenticode 签名。两类产物都经过原生 runner 构建与完整性检查，但不应表述为已完成商店发布或商业分发。后续加入证书时只需扩展 CI 签名步骤，不改变应用架构与打包格式。
 
 ## 浏览器验收
 

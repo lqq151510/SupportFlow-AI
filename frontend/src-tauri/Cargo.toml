@@ -1,10 +1,10 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+version = "1.0.2"
+description = "SupportFlow AI desktop workbench"
+authors = ["lqq151510"]
+license = "MIT"
+repository = "https://github.com/lqq151510/SupportFlow-AI"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -25,3 +25,4 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 base64 = "0.22"
 rand = "0.9"
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native"] }
