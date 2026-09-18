@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lqq.supportflow.shared.LocalSecureStorageUnavailableException;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 
 class ApiKeyCipherTest {
 
-    private static final String MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    private static final String MASTER_KEY = Base64.getEncoder().encodeToString(
+            "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
 
     @Test
     void missingRuntimeMasterKeyDoesNotExposeTheEnvironmentVariableName() {
