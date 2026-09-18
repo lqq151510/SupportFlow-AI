@@ -47,6 +47,13 @@ test('consumer handoff is claimed, documented, resolved and closed by an agent',
   await agentPage.getByLabel('内部备注').fill('已核对订单信息，正在为客户跟进。');
   await agentPage.getByRole('button', {name: '保存内部备注'}).click();
   await expect(agentPage.getByText('已核对订单信息，正在为客户跟进。')).toBeVisible();
+  await agentPage.getByRole('button', {name: '正式回复'}).click();
+  await agentPage.getByLabel('正式回复').fill('已核实订单，退款申请正在处理。');
+  await agentPage.getByRole('button', {name: '发送正式回复'}).click();
+  await expect(agentPage.getByText('正式回复已发送给消费者。')).toBeVisible();
+  await customerPage.getByRole('button', {name: '刷新会话'}).click();
+  await expect(customerPage.getByText('已核实订单，退款申请正在处理。')).toBeVisible();
+  await expect(customerPage.getByText('客服坐席')).toBeVisible();
   await agentPage.getByRole('button', {name: '标记已解决'}).click();
   await expect(agentPage.getByText('工单已标记为已解决。')).toBeVisible();
   await agentPage.getByRole('button', {name: '关闭工单'}).click();

@@ -579,6 +579,19 @@ class SupportFlowApplicationTest {
         mockMvc.perform(post(ticketPath + "/comments").header("Authorization", "Bearer " + agentToken)
                         .contentType("application/json").content("{\"content\":\"正在为您核实退款资格\"}"))
                 .andExpect(status().isCreated());
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post(ticketPath + "/replies").header("Authorization", "Bearer " + agentToken)
+                            .header("Idempotency-Key", "agent-reply-1")
+                            .contentType("application/json").content("{\"content\":\"已核实订单，退款申请正在处理。\"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.conversationId").value(conversationId));
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM conversation_messages WHERE conversation_id = ? AND sender_type = 'AGENT'", Integer.class,
+                Long.parseLong(conversationId))).isEqualTo(1);
+        mockMvc.perform(get("/api/v1/customer/conversations/" + conversationId).header("Authorization", "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[?(@.senderType == 'AGENT')].content").value(org.hamcrest.Matchers.hasItem("已核实订单，退款申请正在处理。")))
+                .andExpect(jsonPath("$.traces").isEmpty());
         mockMvc.perform(post(ticketPath + "/status").header("Authorization", "Bearer " + agentToken)
                         .contentType("application/json").content("{\"status\":\"RESOLVED\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RESOLVED"));

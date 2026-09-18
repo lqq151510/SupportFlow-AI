@@ -1,7 +1,6 @@
 <script setup>
 import {computed} from 'vue';
-import {ArrowRight, CheckCircle2, ChevronDown, ExternalLink, FileText, ShieldCheck, SlidersHorizontal, Ticket} from '@lucide/vue';
-import ActivityRow from '../components/ActivityRow.vue';
+import {ArrowRight, ChevronDown, ExternalLink, ShieldCheck, SlidersHorizontal} from '@lucide/vue';
 import AppButton from '../components/AppButton.vue';
 import PageHeader from '../components/PageHeader.vue';
 import StatCard from '../components/StatCard.vue';
@@ -15,10 +14,10 @@ const emit = defineEmits(['nav']);
 const go = key => emit('nav', key);
 
 const metrics = computed(() => props.overview || {
-  completedGenerations: 1284,
-  handoffGenerations: 86,
-  aiResolutionRate: .942,
-  overdueTickets: 7,
+  completedGenerations: 0,
+  handoffGenerations: 0,
+  aiResolutionRate: 0,
+  overdueTickets: 0,
   inputTokens: 0,
   outputTokens: 0,
   averageGenerationLatencyMs: 0,
@@ -28,7 +27,7 @@ const metrics = computed(() => props.overview || {
 <template>
   <PageHeader title="工作台总览" sub="实时掌握客服、知识库和 SLA 运行情况">
     <AppButton>今日 · 2026年8月9日 <ChevronDown :size="14" /></AppButton>
-    <AppButton :icon="ExternalLink">导出报告</AppButton>
+    <AppButton :icon="ExternalLink" disabled>导出报告</AppButton>
   </PageHeader>
   <div class="stats">
     <StatCard label="AI 已解决" :value="metrics.completedGenerations.toLocaleString()" :delta="`转人工 ${metrics.handoffGenerations.toLocaleString()} 次`" />
@@ -71,23 +70,20 @@ const metrics = computed(() => props.overview || {
         <h2>知识库健康度</h2>
         <button class="text-link" @click="go('knowledge')">管理知识库</button>
       </div>
-      <div class="health-big"><CheckCircle2 /><strong>健康</strong><span>248 份文档 · 1,240 个切片</span></div>
-      <div class="progress large"><span :style="{width: '92%'}"></span></div>
-      <div class="split-note"><span>已索引 <b>244</b></span><span>处理中 <b>3</b></span><span>失败 <b class="danger">1</b></span></div>
+      <div class="health-big"><ShieldCheck /><strong>统计接入中</strong><span>文档与切片数量将从知识库接口读取</span></div>
+      <p class="empty-state">请在知识库页面查看当前导入和索引状态。</p>
     </section>
     <section class="panel">
       <div class="panel-head"><h2>RAG 检索质量</h2><SlidersHorizontal :size="17" /></div>
       <div class="quality">
-        <div><strong>0.86</strong><span>平均相关性</span></div>
-        <div><strong>94.2%</strong><span>引用覆盖率</span></div>
-        <div><strong>3.8%</strong><span>无证据回答率</span></div>
+        <div><strong>—</strong><span>平均相关性</span></div>
+        <div><strong>—</strong><span>引用覆盖率</span></div>
+        <div><strong>—</strong><span>无证据回答率</span></div>
       </div>
     </section>
     <section class="panel">
-      <div class="panel-head"><h2>最近活动</h2><button class="text-link">查看日志</button></div>
-      <ActivityRow text="退款与退货政策已重新索引" time="2 分钟前" :icon="FileText" />
-      <ActivityRow text="TKT-52418 已分配给坐席 A" time="12 分钟前" :icon="Ticket" />
-      <ActivityRow text="退款审批申请待处理" time="26 分钟前" :icon="ShieldCheck" />
+      <div class="panel-head"><h2>最近活动</h2></div>
+      <p class="empty-state">活动审计接口尚未开放，避免展示固定示例数据。</p>
     </section>
   </div>
 </template>

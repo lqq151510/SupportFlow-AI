@@ -1,7 +1,7 @@
 <script setup>
 import {onMounted, ref} from 'vue';
-import {Bot, Send, ShieldCheck} from '@lucide/vue';
-import {createConversation, getCustomerOrders, readGenerationEvents, submitCustomerMessage} from '../api.js';
+import {Bot, RefreshCcw, Send, ShieldCheck} from '@lucide/vue';
+import {createConversation, getCustomerConversation, getCustomerOrders, readGenerationEvents, submitCustomerMessage} from '../api.js';
 import {currencyAmount, formatDateTime} from '../lib/format.js';
 import AppButton from '../components/AppButton.vue';
 import PageHeader from '../components/PageHeader.vue';
@@ -13,7 +13,17 @@ const message = ref('');
 const messages = ref([]);
 const generating = ref(false);
 // 同一会话复用同一个 conversationId，避免每条消息都新建会话。
-let conversationId = null;
+const conversationId = ref(null);
+
+const refreshConversation = async () => {
+  if (!conversationId.value) return;
+  const conversation = await getCustomerConversation(conversationId.value);
+  messages.value = conversation.messages.map(item => ({
+    role: item.senderType === 'CUSTOMER' ? 'customer' : 'assistant',
+    sender: item.senderType,
+    content: item.content,
+  }));
+};
 
 onMounted(() => {
   getCustomerOrders().then(items => {
@@ -39,10 +49,8 @@ const poll = async generationId => {
         const items = messages.value;
         messages.value = items.at(-1)?.role === 'assistant' ? items.slice(0, -1) : items;
       }
-      if (event.type === 'handoff.required') {
-        messages.value = [...messages.value, {role: 'system', content: '已转人工客服，坐席会继续处理该问题。'}];
-      }
-      if (event.type === 'model.completed' || event.type === 'handoff.required') return;
+      if (event.type === 'handoff.required') return 'handoff';
+      if (event.type === 'model.completed') return 'completed';
     }
     await new Promise(resolve => setTimeout(resolve, 350));
   }
@@ -58,9 +66,13 @@ const send = async event => {
   messages.value = [...messages.value, {role: 'customer', content}];
   message.value = '';
   try {
-    if (!conversationId) conversationId = (await createConversation()).id;
-    const generation = await submitCustomerMessage(conversationId, content, crypto.randomUUID());
-    await poll(generation.id);
+    if (!conversationId.value) conversationId.value = (await createConversation()).id;
+    const generation = await submitCustomerMessage(conversationId.value, content, crypto.randomUUID());
+    const outcome = await poll(generation.id);
+    await refreshConversation();
+    if (outcome === 'handoff') {
+      messages.value = [...messages.value, {role: 'system', content: '已转人工客服，坐席会继续处理该问题。'}];
+    }
   } catch (sendError) {
     error.value = sendError.message;
   } finally {
@@ -71,7 +83,7 @@ const send = async event => {
 
 <template>
   <PageHeader title="我的订单与服务" sub="查看属于当前账户的订单，并通过 AI 与坐席协同获得支持">
-    <AppButton>帮助中心</AppButton>
+    <AppButton :icon="RefreshCcw" :disabled="!conversationId || generating" @click="refreshConversation">刷新会话</AppButton>
   </PageHeader>
   <div class="customer-layout">
     <section class="panel customer-tickets">
@@ -111,7 +123,7 @@ const send = async event => {
         >
           <span class="message-avatar"><Bot v-if="item.role === 'assistant'" :size="17" /><template v-else>{{ item.role === 'system' ? '内' : '客' }}</template></span>
           <div>
-            <small>{{ item.role === 'assistant' ? 'SupportFlow AI' : item.role === 'system' ? '服务状态' : '我' }}</small>
+            <small>{{ item.role === 'assistant' ? item.sender === 'AGENT' ? '客服坐席' : 'SupportFlow AI' : item.role === 'system' ? '服务状态' : '我' }}</small>
             <p>{{ item.content }}</p>
           </div>
         </div>

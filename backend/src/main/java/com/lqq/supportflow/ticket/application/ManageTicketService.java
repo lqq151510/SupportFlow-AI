@@ -1,5 +1,6 @@
 package com.lqq.supportflow.ticket.application;
 
+import com.lqq.supportflow.conversation.AgentConversationReplyService;
 import com.lqq.supportflow.shared.AssignableMemberProvider;
 import com.lqq.supportflow.ticket.domain.Ticket;
 import com.lqq.supportflow.ticket.domain.TicketComment;
@@ -15,11 +16,14 @@ public class ManageTicketService {
     private final TicketPort tickets;
     private final TicketCommentPort comments;
     private final AssignableMemberProvider assignableMembers;
+    private final AgentConversationReplyService replies;
 
-    public ManageTicketService(TicketPort tickets, TicketCommentPort comments, AssignableMemberProvider assignableMembers) {
+    public ManageTicketService(TicketPort tickets, TicketCommentPort comments, AssignableMemberProvider assignableMembers,
+            AgentConversationReplyService replies) {
         this.tickets = tickets;
         this.comments = comments;
         this.assignableMembers = assignableMembers;
+        this.replies = replies;
     }
 
     public List<Ticket> list(Long tenantId) { return tickets.list(tenantId); }
@@ -45,4 +49,15 @@ public class ManageTicketService {
     public TicketComment addComment(Long tenantId, Long ticketId, Long membershipId, String content) { return comments.add(tenantId, ticketId, membershipId, content); }
 
     public List<TicketComment> comments(Long tenantId, Long ticketId) { return comments.list(tenantId, ticketId); }
+
+    @Transactional
+    public AgentConversationReplyService.AgentReply reply(Long tenantId, Long ticketId, Long membershipId, String content,
+            String idempotencyKey) {
+        Ticket ticket = tickets.get(tenantId, ticketId);
+        if (ticket.assignedMembershipId() == null || !ticket.assignedMembershipId().equals(membershipId)) {
+            throw new IllegalArgumentException("ticket must be claimed by the replying agent");
+        }
+        if (ticket.status() == TicketStatus.CLOSED) throw new IllegalArgumentException("closed ticket cannot receive a reply");
+        return replies.reply(tenantId, ticket.conversationId(), membershipId, content, idempotencyKey);
+    }
 }

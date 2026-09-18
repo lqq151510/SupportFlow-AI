@@ -101,6 +101,18 @@ export const changeTicketStatus = (ticketId, status) => ticketRequest(ticketId, 
 export const getTicketComments = ticketId => ticketRequest(ticketId, '/comments');
 export const getTicketContext = ticketId => ticketRequest(ticketId, '/context');
 export const addTicketComment = (ticketId, content) => ticketRequest(ticketId, '/comments', {method: 'POST', body: JSON.stringify({content})});
+export const sendAgentReply = (ticketId, content, idempotencyKey) => ticketRequest(ticketId, '/replies', {
+  method: 'POST', headers: {'Idempotency-Key': idempotencyKey}, body: JSON.stringify({content}),
+});
+
+export async function getCustomerConversation(conversationId) {
+  const token = accessToken('请先登录以查看会话');
+  const response = await fetch(`${API_BASE_URL}/api/v1/customer/conversations/${conversationId}`, {
+    headers: {Authorization: `Bearer ${token}`},
+  });
+  if (!response.ok) throw new Error(`会话加载失败 (${response.status})`);
+  return response.json();
+}
 
 export async function getApprovals() {
   const token = localStorage.getItem('supportflow.accessToken');

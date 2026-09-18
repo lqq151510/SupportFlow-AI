@@ -2,6 +2,7 @@ package com.lqq.supportflow.ticket.api;
 
 import com.lqq.supportflow.commerce.CustomerOrderCatalogService;
 import com.lqq.supportflow.conversation.AgentConversationViewService;
+import com.lqq.supportflow.conversation.AgentConversationReplyService;
 import com.lqq.supportflow.shared.AuthenticatedPrincipal;
 import com.lqq.supportflow.ticket.application.ManageTicketService;
 import com.lqq.supportflow.ticket.domain.Ticket;
@@ -45,6 +46,12 @@ public class AdminTicketController {
     @PostMapping("/{ticketId}/status") Ticket status(@AuthenticationPrincipal AuthenticatedPrincipal principal,@PathVariable Long ticketId,@Valid @RequestBody ChangeTicketStatusRequest request){return service.changeStatus(principal.tenantId(),ticketId,request.status());}
     @GetMapping("/{ticketId}/comments") List<TicketComment> comments(@AuthenticationPrincipal AuthenticatedPrincipal principal,@PathVariable Long ticketId){return service.comments(principal.tenantId(),ticketId);}
     @PostMapping("/{ticketId}/comments") ResponseEntity<TicketComment> comment(@AuthenticationPrincipal AuthenticatedPrincipal principal,@PathVariable Long ticketId,@Valid @RequestBody TicketCommentRequest request){return ResponseEntity.status(HttpStatus.CREATED).body(service.addComment(principal.tenantId(),ticketId,principal.membershipId(),request.content()));}
+    @PostMapping("/{ticketId}/replies") ResponseEntity<AgentConversationReplyService.AgentReply> reply(
+            @AuthenticationPrincipal AuthenticatedPrincipal principal, @PathVariable Long ticketId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey, @Valid @RequestBody AgentReplyRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.reply(principal.tenantId(), ticketId,
+                principal.membershipId(), request.content(), idempotencyKey));
+    }
 
     record TicketContext(Ticket ticket, AgentConversationViewService.ConversationView conversation,
                          List<CustomerOrderCatalogService.OrderView> orders) { }
