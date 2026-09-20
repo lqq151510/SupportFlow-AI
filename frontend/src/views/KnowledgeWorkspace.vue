@@ -85,7 +85,7 @@ const handleOrganize = async document => {
   try {
     const result = await organizeKnowledgeDocument(selectedBase.value.id, document.id);
     organizeResult.value = result;
-    notify(`「${document.fileName}」智能整理完成（使用模型：${result.modelUsed}，消耗 ${result.totalTokens} Tokens，已归集入库）。`);
+    notify(`「${document.fileName}」整理预览已生成（处理方式：${result.modelUsed}）。结果基于当前文档切片，本次未写回文档元数据。`);
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -113,13 +113,13 @@ const handleOrganize = async document => {
     <div class="panel-head">
       <div class="organize-title">
         <Sparkles :size="18" class="icon-sparkle" />
-        <h3>文档智能整理报告 · {{ organizeResult.fileName }}</h3>
+        <h3>文档整理预览 · {{ organizeResult.fileName }}</h3>
       </div>
       <button class="icon-btn" @click="organizeResult = null"><X :size="16" /></button>
     </div>
     <div class="organize-meta">
-      <span>采用模型：<strong>{{ organizeResult.modelUsed }}</strong></span>
-      <span>消耗 Token：<b>{{ organizeResult.totalTokens }}</b></span>
+      <span>处理方式：<strong>{{ organizeResult.modelUsed }}</strong></span>
+      <span>模型 Token：<b>{{ organizeResult.totalTokens > 0 ? organizeResult.totalTokens : '未调用模型' }}</b></span>
       <span>处理耗时：{{ organizeResult.latencyMs }} ms</span>
     </div>
     <div class="organize-body">

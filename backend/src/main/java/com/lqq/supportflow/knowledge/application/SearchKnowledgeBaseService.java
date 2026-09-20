@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,16 +28,26 @@ public class SearchKnowledgeBaseService {
     private final ModelEmbeddingService embeddings;
     private final KnowledgeSearchAuditPort audits;
     private final double minimumRrfScore;
+    private final boolean mockEnabled;
 
     public SearchKnowledgeBaseService(KnowledgeBasePort bases, KnowledgeSearchIndex index,
                                       ModelEmbeddingService embeddings, KnowledgeSearchAuditPort audits,
-                                      @Value("${supportflow.knowledge.search.minimum-rrf-score:0.015}") double minimumRrfScore) {
+                                      double minimumRrfScore) {
+        this(bases, index, embeddings, audits, minimumRrfScore, false);
+    }
+
+    @Autowired
+    public SearchKnowledgeBaseService(KnowledgeBasePort bases, KnowledgeSearchIndex index,
+                                      ModelEmbeddingService embeddings, KnowledgeSearchAuditPort audits,
+                                      @Value("${supportflow.knowledge.search.minimum-rrf-score:0.015}") double minimumRrfScore,
+                                      @Value("${supportflow.model.mock.enabled:false}") boolean mockEnabled) {
         if (minimumRrfScore < 0.0) throw new IllegalArgumentException("minimum RRF score cannot be negative");
         this.bases = bases;
         this.index = index;
         this.embeddings = embeddings;
         this.audits = audits;
         this.minimumRrfScore = minimumRrfScore;
+        this.mockEnabled = mockEnabled;
     }
 
     public KnowledgeSearchResult search(Long tenantId, Long knowledgeBaseId, String query) {
@@ -60,9 +71,12 @@ public class SearchKnowledgeBaseService {
 
     private List<KnowledgeCitation> retrieve(Long tenantId, Long knowledgeBaseId, String query) {
         List<RankedKnowledgeChunk> keyword = index.keywordSearch(tenantId, knowledgeBaseId, query, CANDIDATE_LIMIT);
-        List<float[]> vectors = embeddings.embed(tenantId, List.of(query));
-        if (vectors.size() != 1) throw new IllegalArgumentException("query embedding is invalid");
-        List<RankedKnowledgeChunk> dense = index.vectorSearch(tenantId, knowledgeBaseId, vectors.getFirst(), CANDIDATE_LIMIT);
+        List<RankedKnowledgeChunk> dense = List.of();
+        if (!mockEnabled) {
+            List<float[]> vectors = embeddings.embed(tenantId, List.of(query));
+            if (vectors.size() != 1) throw new IllegalArgumentException("query embedding is invalid");
+            dense = index.vectorSearch(tenantId, knowledgeBaseId, vectors.getFirst(), CANDIDATE_LIMIT);
+        }
         Map<Long, Candidate> combined = new HashMap<>();
         merge(combined, keyword);
         merge(combined, dense);

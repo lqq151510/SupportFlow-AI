@@ -38,7 +38,7 @@ class ConfiguredChatModelGatewayHttpTest {
         });
         try {
             List<ModelEvent> events = gateway(server, ModelProtocol.OPENAI_COMPATIBLE).stream(request()).collectList().block();
-            assertThat(requestPath.get()).isEqualTo("/chat/completions");
+            assertThat(requestPath.get()).isEqualTo("/v1/chat/completions");
             assertThat(authorization.get()).isEqualTo("Bearer decrypted-key");
             assertThat(events).containsExactly(new ModelEvent.TextDelta("hello"), new ModelEvent.ModelCompleted());
         } finally { server.stop(0); }

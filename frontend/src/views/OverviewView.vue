@@ -1,6 +1,6 @@
 <script setup>
 import {computed} from 'vue';
-import {ArrowRight, ChevronDown, ExternalLink, ShieldCheck, SlidersHorizontal} from '@lucide/vue';
+import {ArrowRight, CalendarDays, ExternalLink, ShieldCheck, SlidersHorizontal} from '@lucide/vue';
 import AppButton from '../components/AppButton.vue';
 import PageHeader from '../components/PageHeader.vue';
 import StatCard from '../components/StatCard.vue';
@@ -12,6 +12,7 @@ const props = defineProps({
 const emit = defineEmits(['nav']);
 
 const go = key => emit('nav', key);
+const todayLabel = new Intl.DateTimeFormat('zh-CN', {year: 'numeric', month: 'long', day: 'numeric'}).format(new Date());
 
 const metrics = computed(() => props.overview || {
   completedGenerations: 0,
@@ -26,7 +27,7 @@ const metrics = computed(() => props.overview || {
 
 <template>
   <PageHeader title="工作台总览" sub="实时掌握客服、知识库和 SLA 运行情况">
-    <AppButton>今日 · 2026年8月9日 <ChevronDown :size="14" /></AppButton>
+    <AppButton :icon="CalendarDays">今日 · {{ todayLabel }}</AppButton>
     <AppButton :icon="ExternalLink" disabled>导出报告</AppButton>
   </PageHeader>
   <div class="stats">
@@ -39,17 +40,11 @@ const metrics = computed(() => props.overview || {
     <section class="panel chart-panel">
       <div class="panel-head">
         <h2>客服会话趋势</h2>
-        <div class="legend"><i class="cyan"></i>AI 自动处理 <i class="violet"></i>转人工</div>
+        <span class="status">暂无日趋势接口</span>
       </div>
-      <div class="chart">
-        <div class="chart-grid"></div>
-        <svg viewBox="0 0 600 210" preserveAspectRatio="none">
-          <polyline points="0,150 70,122 140,138 210,72 280,94 350,55 420,82 490,32 560,50 600,20" fill="none" stroke="#20b9d8" stroke-width="4" />
-          <polyline points="0,188 70,166 140,180 210,142 280,156 350,132 420,145 490,110 560,122 600,102" fill="none" stroke="#7564ee" stroke-width="4" />
-        </svg>
-        <div class="axis">
-          <span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span>
-        </div>
+      <div class="empty-state chart-empty">
+        <strong>暂无可核验的趋势数据</strong>
+        <span>当前接口只提供租户累计运营指标，未提供按天聚合数据，因此不展示模拟曲线。</span>
       </div>
     </section>
     <section class="panel">
@@ -70,8 +65,8 @@ const metrics = computed(() => props.overview || {
         <h2>知识库健康度</h2>
         <button class="text-link" @click="go('knowledge')">管理知识库</button>
       </div>
-      <div class="health-big"><ShieldCheck /><strong>统计接入中</strong><span>文档与切片数量将从知识库接口读取</span></div>
-      <p class="empty-state">请在知识库页面查看当前导入和索引状态。</p>
+      <div class="health-big"><ShieldCheck /><strong>以知识库页面为准</strong><span>当前总览接口尚未提供租户级文档与切片统计。</span></div>
+      <p class="empty-state">不使用静态数量，点击“管理知识库”查看实际导入状态。</p>
     </section>
     <section class="panel">
       <div class="panel-head"><h2>RAG 检索质量</h2><SlidersHorizontal :size="17" /></div>

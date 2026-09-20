@@ -70,5 +70,11 @@ public class ConfiguredChatModelGateway implements ChatModelGateway {
     private List<Map<String, String>> messages(List<ChatModelRequest.ChatMessage> messages) { return messages.stream().map(message -> Map.of("role", message.role(), "content", message.content())).toList(); }
     private List<Map<String, Object>> openAiTools(List<ChatModelRequest.ToolDefinition> tools) { return tools.stream().map(tool -> Map.<String, Object>of("type", "function", "function", Map.of("name", tool.name(), "description", tool.description(), "parameters", tool.inputSchema()))).toList(); }
     private List<Map<String, Object>> anthropicTools(List<ChatModelRequest.ToolDefinition> tools) { return tools.stream().map(tool -> Map.<String, Object>of("name", tool.name(), "description", tool.description(), "input_schema", tool.inputSchema())).toList(); }
-    private String path(String baseUrl, String suffix) { return (baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl) + "/" + suffix; }
+    private String path(String baseUrl, String suffix) {
+        String root = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        java.net.URI parsed = java.net.URI.create(root);
+        String uriPath = parsed.getPath() == null ? "" : parsed.getPath();
+        if (uriPath.isBlank() || "/".equals(uriPath)) root += "/v1";
+        return root + "/" + suffix;
+    }
 }

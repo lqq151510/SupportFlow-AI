@@ -40,7 +40,8 @@ class KnowledgeOrganizerServiceTest {
                 new InMemoryDocPort(),
                 new InMemoryChunkPort(),
                 chatService,
-                null
+                null,
+                true
         );
 
         KnowledgeOrganizerService.OrganizedKnowledgeResult result = service.organize(1L, 1L, 100L);

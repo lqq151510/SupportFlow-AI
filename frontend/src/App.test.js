@@ -43,9 +43,9 @@ vi.mock('./api.js', async () => ({
     fileName: 'refund.md',
     summary: '退款核心规则说明',
     tags: ['退款', '售后'],
-    modelUsed: 'deepseek-chat',
-    totalTokens: 120,
-    latencyMs: 350,
+    modelUsed: '本地规则抽取（Mock，未调用模型）',
+    totalTokens: 0,
+    latencyMs: 1,
   }),
   getModelConfigs: vi.fn().mockResolvedValue([]),
   createModelConfig: vi.fn(),
@@ -251,7 +251,7 @@ test('loads tenant knowledge bases and allows AI organizing', async () => {
 
   fireEvent.click(byRole('button', {name: '智能整理'}));
 
-  expect(await until(() => byText(/文档智能整理报告/))).toBeInTheDocument();
+  expect(await until(() => byText(/文档整理预览/))).toBeInTheDocument();
   expect(byText('退款核心规则说明')).toBeInTheDocument();
 });
 

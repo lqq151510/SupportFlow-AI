@@ -23,7 +23,7 @@ class ProbeModelConnectionServiceTest {
         });
         try {
             ProbeModelConnectionService.ProbeResult result = service().probe(url(server), "test-key");
-            assertThat(result).isEqualTo(new ProbeModelConnectionService.ProbeResult(true, "HTTP 401"));
+            assertThat(result).isEqualTo(new ProbeModelConnectionService.ProbeResult(false, "HTTP 401"));
             assertThat(authorization.get()).isEqualTo("Bearer test-key");
         } finally {
             server.stop(0);

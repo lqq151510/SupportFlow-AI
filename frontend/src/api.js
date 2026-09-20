@@ -17,11 +17,29 @@ function accessToken(message) {
 }
 
 async function adminRequest(path, options = {}, errorLabel = '请求失败') {
-  const token = accessToken('请先登录管理工作台');
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let token = accessToken('请先登录管理工作台');
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {Authorization: `Bearer ${token}`, ...options.headers},
   });
+  if (response.status === 401) {
+    const refreshToken = localStorage.getItem('supportflow.refreshToken');
+    if (!refreshToken) throw new Error(`${errorLabel} (401：登录已失效，请重新登录)`);
+    try {
+      const tokens = await refreshSession(refreshToken);
+      localStorage.setItem('supportflow.accessToken', tokens.accessToken);
+      localStorage.setItem('supportflow.refreshToken', tokens.refreshToken);
+      token = tokens.accessToken;
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: {Authorization: `Bearer ${token}`, ...options.headers},
+      });
+    } catch {
+      localStorage.removeItem('supportflow.accessToken');
+      localStorage.removeItem('supportflow.refreshToken');
+      throw new Error(`${errorLabel} (401：登录已失效，请重新登录)`);
+    }
+  }
   if (!response.ok) throw new Error(`${errorLabel} (${response.status})`);
   return response.status === 204 ? null : response.json();
 }

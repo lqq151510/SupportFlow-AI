@@ -17,8 +17,8 @@ public class MockModelGateway implements ChatModelGateway, EmbeddingGateway {
     @Override
     public Flux<ModelEvent> stream(ChatModelRequest request) {
         return Flux.just(
-                new ModelEvent.TextDelta("模拟模型已根据租户知识库完成回答。"),
-                new ModelEvent.UsageReported(16, 12),
+                new ModelEvent.TextDelta("当前为本地 Mock 模式，未调用真实模型；该回答仅用于演示流程。"),
+                new ModelEvent.UsageReported(0, 0),
                 new ModelEvent.ModelCompleted());
     }
 

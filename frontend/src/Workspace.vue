@@ -49,22 +49,15 @@ const navEntries = [
 const agentNav = navEntries.filter(([, key]) => key !== 'customers');
 const customerNav = [['我的服务', 'customers', Users]];
 
-const seedTickets = [
-  {id: 'TKT-52418', title: '订单退款与退货运费咨询', customer: '林小满', priority: '高', status: '处理中', sla: '剩余 42 分钟'},
-  {id: 'TKT-52417', title: '包裹超过预计送达时间', customer: '陈可', priority: '普通', status: '等待客户', sla: '剩余 2 小时'},
-  {id: 'TKT-52416', title: '商品破损申请补偿', customer: '周宁', priority: '紧急', status: '待审批', sla: '已超时 18 分钟'},
-  {id: 'TKT-52415', title: '修改收货地址', customer: '赵琳', priority: '低', status: '已解决', sla: '已完成'},
-];
-
 const role = computed(() => props.session?.role);
 const landingPage = () => (props.session ? (role.value === 'CUSTOMER' ? 'customers' : 'overview') : 'account');
 
 const page = ref(landingPage());
 const profile = ref(null);
-const selected = ref(seedTickets[0]);
+const selected = ref(null);
 const notice = ref('');
 const overview = ref(null);
-const workspaceTickets = ref([...seedTickets]);
+const workspaceTickets = ref([]);
 const ticketsLoaded = ref(role.value === 'CUSTOMER');
 const pendingApprovals = ref([]);
 const searchQuery = ref('');
