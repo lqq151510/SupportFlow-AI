@@ -14,6 +14,7 @@ class KnowledgeOrganizerServiceTest {
 
     static class InMemoryDocPort implements KnowledgeDocumentPort {
         @Override public boolean exists(Long tenantId, Long knowledgeBaseId, String contentHash) { return false; }
+        @Override public Optional<KnowledgeDocument> findByContentHash(Long tenantId, Long knowledgeBaseId, String contentHash) { return Optional.empty(); }
         @Override public KnowledgeDocument save(Long tenantId, Long knowledgeBaseId, String fileName, String contentHash) { return null; }
         @Override public KnowledgeDocument transitionStatus(Long tenantId, Long documentId, IngestionStatus from, IngestionStatus to) { return null; }
         @Override public Optional<KnowledgeDocument> findById(Long tenantId, Long knowledgeBaseId, Long documentId) {

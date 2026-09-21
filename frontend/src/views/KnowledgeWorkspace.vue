@@ -101,7 +101,7 @@ const handleOrganize = async document => {
       <p>按当前租户管理文档摄取、切片、向量索引与多模型智能整理（支持 DeepSeek / OpenAI）</p>
     </div>
     <div class="header-actions">
-      <input ref="fileInput" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.md,.txt" @change="upload" />
+      <input ref="fileInput" class="visually-hidden" type="file" accept=".pdf,.docx,.md,.txt" @change="upload" />
       <button class="btn primary" :disabled="!selectedBase || busy" @click="fileInput?.click()">
         <Upload :size="16" />上传文档
       </button>

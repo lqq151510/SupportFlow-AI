@@ -6,6 +6,7 @@ import com.lqq.supportflow.knowledge.domain.KnowledgeDocument;
 import com.lqq.supportflow.knowledge.domain.KnowledgeDocumentPort;
 import com.lqq.supportflow.knowledge.domain.KnowledgeObjectStorage;
 import com.lqq.supportflow.knowledge.domain.StoredKnowledgeObject;
+import com.lqq.supportflow.shared.ConflictException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +44,9 @@ public class UploadKnowledgeDocumentService {
             byte[] bytes = file.getBytes();
             String type = filePolicy.validate(file.getOriginalFilename(), file.getContentType(), bytes);
             String hash = ContentHasher.sha256(bytes);
+            documents.findByContentHash(tenantId, knowledgeBaseId, hash).ifPresent(existing -> {
+                throw new ConflictException("该文档已存在,名称为 " + existing.fileName());
+            });
             StoredKnowledgeObject stored = storage.put(tenantId, knowledgeBaseId, hash,
                     file.getOriginalFilename(), type, new ByteArrayInputStream(bytes), bytes.length);
             String text;

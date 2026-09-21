@@ -70,3 +70,10 @@ management:
   info:
     env:
       enabled: true
+
+logging:
+  level:
+    # PDFBox 解析 Type3 字体时会逐字形打印告警并附带完整堆栈（单次上传可达数千行），
+    # 会冲掉后端日志缓冲并掩盖真实错误。该告警仅影响字形宽度推断，不影响文本抽取结果。
+    # 必须用 OFF：logback 没有 FATAL 级别，写 FATAL 会被静默降级为 DEBUG。
+    org.apache.pdfbox: OFF

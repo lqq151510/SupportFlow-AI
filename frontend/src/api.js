@@ -16,6 +16,18 @@ function accessToken(message) {
   return token;
 }
 
+async function describeFailure(response, errorLabel) {
+  let detail = '';
+  try {
+    const problem = await response.json();
+    if (problem && typeof problem.detail === 'string') detail = problem.detail;
+  } catch {
+    detail = '';
+  }
+  if (!detail && response.status === 413) detail = '文件体积超出上传上限,请压缩后重试';
+  return detail ? `${errorLabel} (${response.status}:${detail})` : `${errorLabel} (${response.status})`;
+}
+
 async function adminRequest(path, options = {}, errorLabel = '请求失败') {
   let token = accessToken('请先登录管理工作台');
   let response = await fetch(`${API_BASE_URL}${path}`, {
@@ -40,7 +52,7 @@ async function adminRequest(path, options = {}, errorLabel = '请求失败') {
       throw new Error(`${errorLabel} (401：登录已失效，请重新登录)`);
     }
   }
-  if (!response.ok) throw new Error(`${errorLabel} (${response.status})`);
+  if (!response.ok) throw new Error(await describeFailure(response, errorLabel));
   return response.status === 204 ? null : response.json();
 }
 
